@@ -1,0 +1,620 @@
+<?php
+
+/*
+ * 
+ */
+
+require_once 'ColeccionParaEsteProyecto.php';
+require_once 'cuentacorriente/models/Rendicion.php';
+
+require_once 'admin/logicalmodels/ElementosValuadosExtras.php';
+require_once 'admin/models/AuditoriaColeccion.php';
+require_once 'default/models/Query.php';
+
+
+class RendicionColeccion extends ColeccionParaEsteProyecto
+{
+    protected $_name    = 'yoga_rendiciones';
+    protected $_id      = 'yoga_rendiciones_id';
+
+    private $_class_origen = 'Rendicion';
+    
+    private $_auditoriaColeccion;
+    
+    protected $duplasCampoMetodo = 
+            [
+                'sede_rindio_a_central'     => 'sedeRindioACentral',            
+                'sede_rindio_a_formador'    => 'sedeRindioAFormador',           
+                'sede_rindio_a_coordinador' => 'sedeRindioACoordinador',        
+                'central_recibio_rendicion'   => 'centralRecibioRendicion',          
+                'central_reviso_rendicion'   => 'centralRevisoRendicion',          
+            ];
+    
+    protected $grupoFormacion;
+    protected $grupoOtrosConceptos;
+
+    
+    
+    public function __construct() {
+        parent::__construct();
+        $this->_Query = new Query();
+        $this->_auditoriaColeccion = new AuditoriaColeccion();
+        
+        $this->grupoFormacion = ElementosValuadosDeFormacion::conceptos();
+        $this->grupoOtrosConceptos = ElementosValuadosExtras::otrosConceptos();
+    }
+    
+    public function metodoDeCampo( $campo=null )
+    {
+        if( !$campo ){
+            return $this->duplasCampoMetodo;
+        }
+        if( key_exists($campo,$this->duplasCampoMetodo) ){
+            return $this->duplasCampoMetodo[ $campo ];
+        }
+        return false;
+    }
+    
+    
+    public function grupoFormacion()
+    {
+        return $this->grupoFormacion;
+    }
+    public function grupoOtrosConceptos()
+    {
+        return $this->grupoOtrosConceptos;
+    }
+    public function grupoOtrosConceptosEnModoUrl()
+    {
+        return ElementosValuadosExtras::otrosConceptosEnModoUrl();
+    }
+    private function _enModoUrl( $key )
+    {
+        return ElementosValuadosExtras::enModoUrl( $key );
+    }
+    
+    
+    public function actualizarRow( $row, $objeto )
+    {
+        if( $objeto->getId() ){
+            $row->id = $objeto->getId();   
+        }
+        $row->sedes_id                          = $objeto->getSedesId();
+        $row->fecha_desde                       = $objeto->getFechaDesde();
+        $row->fecha_hasta                       = $objeto->getFechaHasta();
+        //
+        $row->mat       = $objeto->getMat();
+        $row->cu        = $objeto->getCu();
+        $row->ex        = $objeto->getEx();
+        $row->pla       = $objeto->getPla();
+        $row->reimat    = $objeto->getReimat();
+        $row->reicu     = $objeto->getReicu();
+        //
+        //$row->formacion                 = $objeto->getFormacion();
+        $row->plataforma_practicantes   = $objeto->getPlataforma_practicantes();
+        $row->clases                    = $objeto->getClases();
+        $row->dharma                    = $objeto->getDharma();
+        $row->mudras                    = $objeto->getMudras();
+        $row->detox                     = $objeto->getDetox();
+        $row->comunicacion              = $objeto->getComunicacion();
+        $row->emociones                 = $objeto->getEmociones();
+        $row->mantras_1                 = $objeto->getMantras_1();
+        $row->mantras_2                 = $objeto->getMantras_2();
+        $row->acondicionamiento         = $objeto->getAcondicionamiento();
+        $row->embarazadas               = $objeto->getEmbarazadas();
+        $row->asana                     = $objeto->getAsana();
+        $row->invertidas_estudiantes    = $objeto->getInvertidas_estudiantes();
+        $row->invertidas_no_estudiantes = $objeto->getInvertidas_no_estudiantes();
+        $row->biomecanica               = $objeto->getBiomecanica();
+        $row->hotel_y_comida            = $objeto->getHotel_y_comida();
+        $row->hotel_sincomida           = $objeto->getHotel_sincomida();
+        $row->hotel_todo_incluido       = $objeto->getHotel_todo_incluido();
+        $row->cabana_y_comida           = $objeto->getCabana_y_comida();
+        $row->cabana_sincomida          = $objeto->getCabana_sincomida();
+        $row->cabanas_todo_incluido     = $objeto->getCabanas_todo_incluido();
+        $row->casilla                   = $objeto->getCasilla();
+        $row->solo_actividades          = $objeto->getSolo_actividades();
+        $row->solo_comida               = $objeto->getSolo_comida();
+        $row->matsyendranath_meditacion = $objeto->getMatsyendranath_meditacion();
+        $row->matsyendranath_rituales   = $objeto->getMatsyendranath_rituales();
+        $row->matsyendranath_mantras    = $objeto->getMatsyendranath_mantras();
+        $row->voz                       = $objeto->getVoz();
+        $row->vinyasa                   = $objeto->getVinyasa();
+        
+        //
+        $row->sede_rindio_a_central             = $objeto->sedeRindioACentral();
+        $row->sede_rindio_a_formador            = $objeto->sedeRindioAFormador();
+        $row->sede_rindio_a_coordinador         = $objeto->sedeRindioACoordinador();
+        $row->central_recibio_rendicion         = $objeto->centralRecibioRendicion();
+        $row->central_reviso_rendicion          = $objeto->centralRevisoRendicion();
+        $row->fecha_hora_de_creacion            = $objeto->getFechaHoraDeCreacion();
+        $row->fecha_hora_de_rendicion_a_central = $objeto->getFechaHoraDeRendicionACentral();
+        
+        //$row->save();        
+        $idAlta = $this->tryInsert( $row, $objeto );
+        return $idAlta;
+    }    
+    
+    private function _actualizarObjeto( $Rendicion, $campo )
+    {
+        $metodo = $this->metodoDeCampo( $campo ); 
+        $values = $Rendicion->convertirEnArray();
+        $values[$campo]= (int)!( $Rendicion->$metodo() ); // swap valor
+        return new Rendicion($values);
+    }
+    
+    
+    public function rendir( Rendicion $Rendicion )
+    {
+        if( !$this->_checksPrevioGuardarRendicion( $Rendicion ) ){
+            return false;
+        }
+        $this->setTotales($Rendicion);
+        
+        $Rendicion->setFechaHasta( $Rendicion->getFechaHasta().' 23:59:59.999999' );
+        $id = $this->altaGeneral( $Rendicion, $this->_class_origen );
+        
+        $this->_auditoriaColeccion->registrar( 'alta', 'rendiciones', $id, $Rendicion->convertirEnArray() );
+
+        return $id;
+    }
+    
+    
+    private function _checksPrevioGuardarRendicion( Rendicion $RendicionEvaluando )
+    {
+        $RendicionUltima = $this->getUltimaRendicion( $RendicionEvaluando->getSedesId() );
+        $fechaUltima = ($RendicionUltima)? substr( $RendicionUltima->getFechaHasta(), 0, 10 ) : null;
+        
+        // CHECKS
+        if( !$this->_fechasValidas($RendicionEvaluando) ){
+            return false;
+        } 
+        // Si hay última rendición, su fecha_hasta+1 será igual a lasetTotalMatriculas fecha_desde llegada.
+        if( $RendicionUltima 
+            && date('Y-m-d',sumaDias(substr($fechaUltima,0,10),1)) != substr($RendicionEvaluando->getFechaDesde(),0,10) ){
+            $this->addColeccionMensajes([
+                    'ERROR',
+                    'La fecha "desde" solicitada: '.fechaEnFormatoDDMMYYYY(substr($RendicionEvaluando->getFechaDesde(),0,10),'/').',',
+                    ' no es contigua la fecha de cierre ',
+                    'de la última rendición: '.
+                        fechaEnFormatoDDMMYYYY(substr($RendicionUltima->getFechaHasta(),0,10),'/').'.'
+                    ]);
+            return false;
+        }
+        // No deberá solaparse a otra rendicion
+        if( $this->getIntersecciones( $RendicionEvaluando ) ){
+            $this->addColeccionMensajes([
+                    'ERROR_QUERY_RESULTADO_GENERAL',
+                    'las fechas se solapan a otra rendición' ]);
+            return false;
+        }
+        return true;
+    }
+    
+    private function _fechasValidas( Rendicion $RendicionEvaluando )
+    {
+        if( !validateDate($RendicionEvaluando->getFechaDesde()) ){
+            $this->addColeccionMensajes(['error', 'La fecha "desde" parece ser errónea',$RendicionEvaluando->getFechaDesde()]);
+            return false;
+        }
+        if( !validateDate($RendicionEvaluando->getFechaHasta()) ){
+            $this->addColeccionMensajes(['error', 'La fecha "hasta" parece ser errónea',$RendicionEvaluando->getFechaHasta()]);
+            return false;
+        }
+        if( $RendicionEvaluando->getFechaDesde() > $RendicionEvaluando->getFechaHasta() ){
+            $this->addColeccionMensajes(['error', 'La fecha "hasta" es menor que "desde"']);
+            return false;
+        }
+        if( $RendicionEvaluando->getFechaDesde() > date('Y-m-d') 
+            || substr($RendicionEvaluando->getFechaHasta(),0,10) > date('Y-m-d') ){
+            $this->addColeccionMensajes(['error', 'Las fechas no pueden ser mayores a hoy']);
+            return false;
+        }
+        return true;
+    }
+    
+
+    public function anular( Rendicion $Rendicion )
+    {
+        $this->eliminarGeneral( ['id' => $Rendicion->getId() ] );
+        $this->_auditoriaColeccion->registrar( 'baja', 'rendiciones', $Rendicion->getId(), $Rendicion->convertirEnArray() );
+    }                
+    
+    /* sin uso
+    public function anularLasPosteriores( Rendicion $Rendicion )
+    {
+        $buscar = [ 'sedes_id' => $Rendicion->getSedesId(), 
+                    'fecha_hasta >= "'.$Rendicion->getFechaHasta().'" '  ];
+        
+        $this->_auditoriaColeccion->registrar( 'baja', 'rendiciones', $Rendicion->getId(), $Rendicion->convertirEnArray() );
+        $this->eliminarGeneral($buscar);
+    }
+     */
+    
+    public function rendicionesPosteriores( Rendicion $Rendicion )
+    {
+        $buscar = [ 'sedes_id' => $Rendicion->getSedesId(), 
+                    'fecha_hasta >= "'.$Rendicion->getFechaHasta().'" '  ];
+        return $this->obtenerGeneral( $buscar, 'id', $this->_class_origen );
+    }
+    
+    /* 
+     * No debe haber fechas que solapen períodos.
+     * OUTPUT
+     * FALSE o <array>
+     */
+    public function getIntersecciones( Rendicion $Rendicion )
+    {
+        $buscar = [ 'sedes_id'  => $Rendicion->getSedesId(),
+                    'fecha_desde BETWEEN "'.$Rendicion->getFechaDesde().'" AND "$fechaHasta" OR '.
+                    'fecha_hasta BETWEEN "'.$Rendicion->getFechaHasta().'" AND "$fechaHasta" '
+                    ];
+        return $this->obtenerGeneral( $buscar, 'id', $this->_class_origen );
+    }
+        
+    
+    public function getUltimasRendiciones( $sedes_id, $cuantas=7 )
+    {
+        $sql =  'SELECT * FROM ( '
+                . 'SELECT * FROM yoga_rendiciones '
+                . "WHERE sedes_id=$sedes_id "
+                . 'ORDER BY fecha_hasta DESC '
+                . "LIMIT $cuantas"
+                . ') tmp ORDER BY fecha_hasta DESC ';
+        $resu = $this->_Query->ejecutarQuery( $sql );
+        if( !$resu || count($resu)==0 ){
+            return false;
+        }
+        $rendiciones = [];
+        foreach( $resu as $r ){
+            $rendiciones[]=new Rendicion($r);
+        }
+        return $rendiciones;
+    }
+        
+    
+    public function getUltimaRendicion( $sedes_id )
+    {
+        $sql = 'SELECT * FROM yoga_rendiciones '
+                . "WHERE sedes_id=$sedes_id "
+                . " AND fecha_hasta = ( SELECT MAX(fecha_hasta) FROM yoga_rendiciones WHERE sedes_id=$sedes_id )";
+        $r = $this->_Query->ejecutarQuery( $sql );
+        if( !$r || count($r)==0 ){
+            return false;
+        }
+        return new Rendicion($r[0]);
+    }
+    
+    
+    /*
+     * Devuelve para cada sede, la última rendición revisada y las pendientes
+     */
+    public function getUltimasRevisadas()
+    {
+        $sql = 'SELECT * FROM sedes_centros AS sedes '
+                // LA ÚLTIMA APROBADA
+                . 'INNER JOIN ( '
+                . 'SELECT * FROM yoga_rendiciones AS A '
+                    . 'WHERE fecha_desde = '
+                    .               '( SELECT MAX(fecha_desde) '
+                    .               'FROM yoga_rendiciones AS B '
+                    .               'WHERE B.sedes_id = A.sedes_id '
+                //    .                   'AND B.sede_rindio_a_central IS TRUE '
+                //    .                   'AND B.sede_rindio_a_formador IS TRUE '
+                //    .                   'AND B.sede_rindio_a_coordinador IS TRUE '
+                    .                   'AND B.central_recibio_rendicion IS TRUE '
+                    .                   'AND B.central_reviso_rendicion IS TRUE '
+                    .               ') '
+                    . ' GROUP BY A.sedes_id '
+                    . 'UNION '
+                // EL RESTO NO APROBADAS
+                    . 'SELECT * FROM yoga_rendiciones '
+                    . 'WHERE    central_recibio_rendicion IS FALSE '
+                    .       'OR central_reviso_rendicion IS FALSE '
+                    //.       'OR  sede_rindio_a_central IS FALSE '
+                    //.       'OR  sede_rindio_a_formador IS FALSE '
+                    //.       'OR  sede_rindio_a_coordinador IS FALSE '
+                . ') AS C '
+                . 'ON sedes.id_sede_centro = C.sedes_id '
+                . 'ORDER BY nombre_sede_centro, fecha_desde ';
+        // echo $sql; die();
+        $rowset = $this->_Query->ejecutarQuery( $sql );
+        if( !$rowset || count($rowset)==0 ){
+            return false;
+        }
+        return $rowset; //$this->rowsetToObjetos( $rowset, $this->_class_origen );
+    }
+    
+    
+    public function swapValor( $id, $campo )
+    {
+        $Rendicion = $this->obtenerPorIdGeneral( $id, $this->_class_origen );
+        if( !$this->_esViableActualizarCampo( $Rendicion, $campo ) ){
+            return false;
+        }
+        $RendicionModificada = $this->_actualizarObjeto( $Rendicion, $campo );
+        if( !$this->modificacionactualizacionGeneral( $RendicionModificada, 'Rendicion' ) ){
+            return false;
+        }
+        return true;
+    }
+    
+    private function _esViableActualizarCampo( $Rendicion, $campo )
+    {
+        // Si no está dejando los dos checks marcados, no es necesario verificar nada.
+        $RendicionModificada = $this->_actualizarObjeto( $Rendicion, $campo );
+        if( !$this->estaFinalizada( $RendicionModificada ) ){
+            //return true;
+        }
+        // Todas las rendiciones deberán revisarse de manera secuencial 
+        // sin que se pueda saltear.
+        $metodo = $this->metodoDeCampo( $campo ); 
+        // $nuevoValor = (int)!( $Rendicion->$metodo() ); // swap valor
+        if( $RendicionModificada->$metodo() == false ){
+            // No debería haber ninguna otra rendición finalizada posterior a esta.
+            $buscar = [ 'sedes_id' => $Rendicion->getSedesId(),
+                        'central_recibio_rendicion' => true, 
+                        'central_reviso_rendicion'  => true,
+                        'fecha_desde > "'.$Rendicion->getFechaHasta().'" '   
+                ];
+            if( $this->obtenerGeneral( $buscar, 'id', $this->_class_origen ) ){
+                $this->addColeccionMensajes([ 'ERROR',
+                        'No puede quitarse la marca, ya que luego hay otra rendición finalizada.', 
+                        '(Se vuelve atrás el check)'] );
+                return false;
+            }
+        }else if( $this->estaFinalizada( $RendicionModificada ) ){
+            // No debería haber ninguna otra rendición sin finalizar anterior a esta.
+            $buscar = [ 'sedes_id' => $Rendicion->getSedesId(),
+                        'central_recibio_rendicion IS FALSE OR central_reviso_rendicion IS FALSE',
+                        'fecha_hasta < "'.$Rendicion->getFechaDesde().'" '   
+                ];
+            if( $this->obtenerGeneral( $buscar, 'id', $this->_class_origen ) ){
+                $this->addColeccionMensajes([ 'ERROR',
+                        'Hay una rendición previa que aun no fue finalizada.', 
+                        '(Se vuelve atrás el check)'] );
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    public function estaFinalizada( Rendicion $Rendicion )
+    {
+        return $Rendicion->centralRecibioRendicion() && $Rendicion->centralRevisoRendicion();
+    }
+    
+    
+    
+    // #########################################################################
+    
+    // #########################################################################
+    
+    // #########################################################################
+    // ####### PAGOS  Y  TOTALES  ##############################################
+    // #########################################################################
+    
+    
+    // 'ctas'   => 'yoga_cuentas_corrientes'
+    // 'viewa'  => 'view_alumnos_por_sedes_cursos_y_planes'
+    // 'viewev' => 'view_elementosvaluados_por_sedes_cursos_y_planes'
+    public function ifSqlGrupoFormacion()
+    {
+        return 
+            [ 
+                'mat'   => 'ev.elementosvaluados_sedes_cursosxanio_id IS NOT NULL AND viewa.nombre_computacional = "profesorado" AND viewev.ev_abreviatura = "MAT" ', 
+                'cu'    => 'ev.elementosvaluados_sedes_cursosxanio_id IS NOT NULL AND viewa.nombre_computacional = "profesorado" AND viewev.ev_abreviatura LIKE "CU%" ', 
+                'reimat'=> 'ev.elementosvaluados_sedes_cursosxanio_id IS NOT NULL AND viewa.nombre_computacional = "reiki" AND viewev.ev_abreviatura LIKE "MAT" ', 
+                'reicu' => 'ev.elementosvaluados_sedes_cursosxanio_id IS NOT NULL AND viewa.nombre_computacional = "reiki" AND viewev.ev_abreviatura LIKE "CU%" ',
+                'ex'    => 'ev.elementosvaluados_sedes_cursosxanio_id IS NOT NULL AND viewa.nombre_computacional = "profesorado" AND viewev.ev_abreviatura LIKE "%EX%" ', 
+                'pla'   => 'ev.elementosvaluados_sedes_cursosxanio_id IS NOT NULL AND viewa.nombre_computacional = "servicio" AND viewa.clasificador_valor = "1" ', 
+            ];
+    }
+    private function _ifSqlOtrosConceptos( $cual=null )
+    {
+        $array = [];
+        foreach( $this->grupoOtrosConceptosEnModoUrl() as $key => $string ){
+            $array[$key]= ' ctas.motivo LIKE "%'.$string.'%"';
+        }
+        if( is_null($cual) ){
+            return $array;
+        }
+        return $array[ $this->_enModoUrl( $cual ) ];
+    }
+    
+    
+    public function selectPagos()
+    {
+        $select = $this->select();
+        $select ->setIntegrityCheck(false)  //se usa cuando hay joins
+                ->from( array( 'ctas'   => 'yoga_cuentas_corrientes' ),
+                        [   '*', 
+                            'grupo_otros_conceptos' => $this->sqlIdentificadorGrupoOtrosConceptos()
+                        ])
+                ->joinLeft( 
+                    array( 'ev' => 'yoga_cuentascorrientes_elementosvaluados' ),
+                    'ctas.id = ev.cuentas_corrientes_id',      //union
+                    ['pago_asignado'] ) // campos de salida
+                ->joinLeft( 
+                    array( 'viewev' => 'view_elementosvaluados_por_sedes_cursos_y_planes' ),
+                    'ev.elementosvaluados_sedes_cursosxanio_id = viewev.evscxa_id',      //union
+                        [ 'grupo_formacion' => $this->sqlIdentificadorGrupoFormacion() ] )
+                ->joinLeft( 
+                    array( 'viewa' => 'view_alumnos_por_sedes_cursos_y_planes' ),
+                    'viewa.alumnos_id = ctas.alumnos_id '.
+                        ' AND viewa.sedes_cursosxanio_id = '
+                        // Si esta en una row de otros conceptos, no tengo id de sedes_cursosxanio_id
+                        . 'COALESCE(viewev.sedes_cursosxanio_id, ( SELECT MAX(B.sedes_cursosxanio_id) FROM view_alumnos_por_sedes_cursos_y_planes AS B WHERE B.alumnos_id = ctas.alumnos_id )) ',
+                    ['apellido','nombres','nombre_espiritual'] )
+                ->where('ctas.tipo_operacion LIKE "%PAGO%" OR ctas.tipo_operacion = "DEBITO_MANUAL" ')
+                ;
+        return $select;
+    }
+    
+    public function condicionarSelect( $select, Rendicion $Rendicion )
+    {
+        $f1 = $Rendicion->getFechaDesde();
+        $f2 = $Rendicion->getFechaHasta().' 23:59:59.999999999';
+        $select->where("fecha_hora_de_sistema BETWEEN '$f1' AND '$f2'" );
+        $select->where('ctas.comprobante_sede = '.$Rendicion->getSedesId() );
+                            // 'view.sedes_id = '.$Rendicion->getSedesId()
+        return $select;
+    }
+    
+    /*
+     * OUTPUT
+     * <array> <array>
+     *    [   'categoria': 'formacion',
+     *        'grupo': 'CU',
+     *        'total':54000,
+     *    ],
+     *    [   'categoria': 'otros_conceptos',
+     *        'grupo': 'clases',
+     *        'total':5250,
+     *    ],
+     */
+    public function totales( Rendicion $Rendicion )
+    {
+        $select = $this->selectTotales();
+        $select = $this->condicionarSelect( $select, $Rendicion );
+        //print($select);
+        $filasArray = $this->fetchAll($select)->toArray();
+        /* $filasArray:
+            {   'grupo_formacion': null,
+                'grupo_otros_conceptos': 'clases',
+                'total_monto':'5250.00',
+                'total_pago_asignado':null
+            },
+         */
+        $totales = arrays_getAlgunasKeysArrays($filasArray, ['grupo_formacion','grupo_otros_conceptos','total_monto','total_pago_asignado']);
+        // filtro valores correctos:
+        $correctos = array();
+        foreach( $totales as $t ){
+            $categoria = ( !is_null($t['grupo_formacion'])? 'formacion' : (!is_null($t['grupo_otros_conceptos'])? 'otros_conceptos' : null ) );
+            if( is_null($categoria) ){
+                continue; // debería dar cero
+            }
+            $grupo = ( $categoria == 'formacion' )? $t['grupo_formacion'] : ( ($categoria == 'otros_conceptos')? $t['grupo_otros_conceptos'] : null );
+            $total = ( $categoria == 'formacion' )? $t['total_pago_asignado'] : ( ($categoria == 'otros_conceptos')? $t['total_monto'] : null );
+            $correctos[]= [
+                            'categoria' => $categoria,
+                            'grupo' => $grupo,
+                            'total' => (int) $total
+                            ];
+        }
+        return $correctos;
+    }
+    
+    
+    public function sqlIdentificadorGrupoFormacion()
+    {
+        $condiciones = $this->ifSqlGrupoFormacion();
+        $string = '';
+        foreach( $condiciones as $grupo => $condicion ){
+            $string.= 'IF( '.$condicion.", '$grupo', ";
+        }
+        $string.= 'NULL '.str_repeat( ')', count($condiciones) );
+        return $string;
+        
+    }
+    
+    public function sqlIdentificadorGrupoOtrosConceptos()
+    {
+        $otrosConceptos = $this->grupoOtrosConceptosEnModoUrl();
+        unset( $otrosConceptos['formacion'] );
+        $string = '';
+        foreach( $otrosConceptos as $grupo => $condicion ){
+            $string.= "IF( ctas.motivo LIKE '%$condicion%', '$grupo', ";
+        }
+        $string.= 'NULL '.str_repeat( ')', count($otrosConceptos) );
+        return $string;
+    }
+    
+    
+    public function getPagos( Rendicion $Rendicion, $grupoEV )
+    {
+        if( !$this->_fechasValidas( $Rendicion ) ){
+            return [];
+        }
+        
+        $select = $this->selectPagos();
+        $select = $this->condicionarSelect( $select, $Rendicion );
+        // agregar ElementoValuado buscado
+        if( key_exists($grupoEV, $this->ifSqlGrupoFormacion() ) ){
+            //$select->where( 'ctasev.elementosvaluados_sedes_cursosxanio_id IS NOT NULL' );
+            $select->where( $this->sqlIdentificadorGrupoFormacion()." = '$grupoEV'" );
+        }elseif( key_exists($grupoEV, $this->_ifSqlOtrosConceptos() ) ){
+            //$select->where( 'ctas.motivo LIKE "%'.$otrosConceptos[$grupoEV].'%" ' );
+            $otrosConceptos = $this->grupoOtrosConceptosEnModoUrl();
+            //$select->where( $this->sqlIdentificadorGrupoOtrosConceptos().' = "'.$otrosConceptos[$grupoEV].'"' );
+            $select->where( 'ctas.motivo LIKE "%'.$otrosConceptos[$grupoEV].'%"');
+        }else{
+            // no hay grupo seleccionado o válido, brinda todos los pagos.
+        }
+        //print($select);die();
+        $filasArray = $this->fetchAll($select)->toArray();
+        if( !$filasArray || count($filasArray)==0 ){
+            return [];
+        }
+        return $filasArray;
+    }
+        
+        
+    public function selectTotales()
+    {
+        $select = $this->selectPagos();
+        $select->reset( Zend_Db_Select::COLUMNS )   // quita elimina el from original
+                ->from( null, // no agrego ninguna tabla. Quedan las que estaban.
+                        [   'ctas.*',
+                            'total_pago_asignado' => 'SUM(ev.pago_asignado)', 
+                            'total_monto' => 'SUM(ctas.monto)', 
+                            'grupo_otros_conceptos' => $this->sqlIdentificadorGrupoOtrosConceptos(),
+                            'grupo_formacion' => $this->sqlIdentificadorGrupoFormacion()  
+                        ]);  
+        $select->group(['grupo_otros_conceptos', 'grupo_formacion']);
+        // print($select);
+        return $select;
+    }
+    
+    public function setTotales( Rendicion $Rendicion )
+    {
+        $totales = $this->totales( $Rendicion );
+        if( !$totales ){
+            return;
+        }
+        $this->_set($Rendicion,  $this->grupoFormacion , $totales );
+        $this->_set( $Rendicion, ElementosValuadosExtras::otrosConceptosEnModoUrl() , $totales );
+        //return $Rendicion; el objeto se modifica por referencia
+    }
+    
+    /* 
+     * INPUT
+     * $fns
+            array(6) {
+              ["mat"] => string(10) "Matriculas"
+              ["cu"] => string(6) "Cuotas"
+              ["ex"] => string(8) "Examenes"
+              ["pla"] => string(10) "Plataforma"
+              ["reimat"] => string(16) "Reiki Matriculas"
+              ["reicu"] => string(12) "Reiki Cuotas"
+            }
+     * $totales
+            array(7) {
+              [0] => array(3) {
+                ["categoria"] => string(15) "otros_conceptos"
+                ["grupo"] => string(6) "clases"
+                ["total"] => int(5450)
+              }
+     */
+    private function _set( Rendicion $Rendicion, $fns , $totales )
+    {
+        foreach( $totales as $key => $values ){
+            if( key_exists( $values['grupo'], $fns) ){
+                $fn = 'set'.ucfirst($values['grupo']);
+                $Rendicion->$fn( $values['total'] );                
+            }
+        }
+    }
+    
+            
+}

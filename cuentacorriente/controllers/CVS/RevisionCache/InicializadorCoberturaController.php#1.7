@@ -1,0 +1,228 @@
+<?php
+/*
+ * INICIALIZADOR COBERTURAS
+ * 
+ * 
+ * Ejecución de procesos sobre la Tabla Elementos Valuados del Alumno
+ * 
+ * 
+ * Para verlo en producción podría ser algo como esto:
+ * 
+ * http://admin.escueladenathayoga.com.ar/gestion/cuentacorriente/inicializador-cobertura/resetsedetodoslosanios/sedes_id/3
+ * 
+ */
+require_once 'application/controllerParaEsteProyecto.php';
+
+require_once 'cuentacorriente/logicalmodels/InicializacionCobertura.php';
+
+require_once 'misFunciones.php';
+
+class Cuentacorriente_InicializadorCoberturaController extends controllerParaEsteProyecto
+{
+    protected $InicializacionCobertura;
+    protected $anios = array( 2010,2011,2012,2013,2014,2015,2016,2017,2018,2019 );
+
+    public function init()
+    {
+        parent::init();
+        
+        ini_set('max_execution_time', 1800); // 1800 segundos 
+        // y como he visto que no me ha funcionado 1 vez en test, agrego la ste. linea:
+        set_time_limit ( 1800 ); // 1800 segundos . Para tiempo ilimitado: set_time_limit (0);
+        
+        
+        $this->InicializacionCobertura = new InicializacionCobertura();
+    }
+    
+    
+    /***********   B O R R A D O    D E    C O B E R T U R A S    *************/
+    
+    /*
+     * Setea TODAS LAS COBERTURAS en cero.
+     * Vacía la tabla de relaciones.
+     */
+    public function resetallAction()
+    {
+        $this->apagarLayout();
+        $this->apagarView();
+        
+        // Reset cobertura
+        $query = new Query();
+        $sql = 'UPDATE yoga_cuentas_corrientes SET cobertura = 0';
+        $query->ejecutarCualquierSql( $sql );
+        $sql2 = 'TRUNCATE TABLE yoga_cuentascorrientes_elementosvaluados';
+        $query->ejecutarCualquierSql( $sql2 );
+        echo 'resetall ok';
+        return;
+    }
+    
+    
+    /*
+     * Para los alumnos de la sede
+     * elimina los valores de cobertura y las asignaciones en la tabla de relación.
+     * 
+     * INPUT
+     *      sedes_id
+     *      anio        Es importante pues podría pasar que un alumno se haya
+     *                  cambiado de sede en otro año,
+     *                  por lo que esos items no deberé tocarlos.
+     * 
+     */
+    public function resetsedeanioAction()
+    {
+        $params = $this->_pre();
+        if( !isset($params['sedes_id']) || !is_numeric($params['sedes_id']) || 
+            !isset($params['anio']) || !$params['anio'] ){
+            //$params['sedes_id'] = SEDE_DEFAULT_ID;
+            die('no hay parametro sedes_id o anio');
+        }
+        
+        $resultado = $this->InicializacionCobertura->resetSedeAnio( (int)$params['sedes_id'], $params['anio'] );        
+        ver( $resultado, 'Resultados inicialización' );
+        return;
+    }
+    
+    /*
+     * loop de resetsedeanioAction() en los años de proceso del sistema.
+     */
+    public function resetsedetodoslosaniosAction()
+    {
+        $params = $this->_pre();
+        if( !isset($params['sedes_id']) || !is_numeric($params['sedes_id']) ){
+            die('no hay parametro sedes_id');
+        }
+        foreach( $this->anios as $anio ){
+            $resultado = $this->InicializacionCobertura->resetSedeAnio( (int)$params['sedes_id'], (string)$anio );
+            ver( $resultado, 'Resultados inicialización '. $anio );
+        }
+    }
+    
+    /*
+     * Alternativa, para resetear un único alumno.
+     * Elimina los valores de cobertura y las asignaciones en la tabla de relación.
+     * 
+     * INPUT
+     *      sedes_id
+     *      anio        Es importante pues podría pasar que un alumno se haya
+     *                  cambiado de sede en otro año,
+     *                  por lo que esos items no deberé tocarlos.
+     */
+    public function resetalumnoanioAction()
+    {
+        $params = $this->_pre();
+        if( !isset($params['alumnos_id']) || !is_numeric($params['alumnos_id']) ||
+            !isset($params['anio']) || !$params['anio'] ){
+            die('no hay parametro alumnos_id o anio');
+        }
+        
+        $alumnos_id = (int) $params['alumnos_id'];
+        $resultado = $this->InicializacionCobertura->resetAlumnoAnio( $alumnos_id, $params['anio'] );
+        ver( $resultado, 'Resultados inicialización ' );
+        return;
+    }
+    
+    
+    
+    
+    
+    /******************  C A R G A   D E   V A L O R E S    *******************/
+    
+    
+    
+    /*
+     * Carga las coberturas y las relaciones entre cuenta corriente y los EVA
+     * ( si el alumno ya tiene los datos inicializados, 
+     * y no se detecta pagos que puedan distribuirse en deudas, no habra cambios )
+     * 
+     * INPUT
+     * $sedes_id
+     * $anio            Este dato es importante pues podría pasar 
+     *                  que un alumno se haya cambiado de sede en otro año,
+     *                  por lo que esos items no deberé tocarlos.
+     * $alumnos_id      Opcional, 
+     *                  por si solo quiero procesar determinados alumnos
+     * 
+    */
+    public function calcularcoberturassedeanioAction()
+    {
+        $params = $this->_pre();
+        if( !isset($params['sedes_id']) || !is_numeric($params['sedes_id']) ||
+            !isset($params['anio']) || !$params['anio'] ){
+            die('no hay parametro sedes_id o anio');
+        }
+        
+        $sedes_id = (int) $params['sedes_id'];
+        $alumnos_id = ( isset($params['alumnos_id']) )? $params['alumnos_id']: null;
+        $resultado = $this->InicializacionCobertura->inicializadorAnioRequerido( $sedes_id, $params['anio'], $alumnos_id );
+        
+        //ver( $resultado, 'Resultados inicialización ' );
+        return;
+    }
+    /*
+     * Carga las coberturas y las relaciones entre cuenta corriente y los EVA
+     * para la sede completa con todos los años posibles.
+     * ( si el alumno ya tiene los datos inicializados, 
+     * y no se detecta pagos que puedan distribuirse en deudas, no habra cambios )
+     * 
+     * INPUT
+     * $sedes_id
+     * alumnos_id
+    */
+    public function calcularcoberturassedeparatodoslosaniosAction()
+    {
+        $params = $this->_pre();
+        
+        if( !isset($params['sedes_id']) || !is_numeric($params['sedes_id'])  ){
+            //$params['sedes_id'] = SEDE_DEFAULT_ID;
+            die('no hay parametro sedes_id');
+        }
+        $alumno_id = ( isset($params['alumnos_id']) )? $params['alumnos_id'] : null;
+        
+        
+         $this->InicializacionCobertura->inicializadorDatosViejosHastaHoy( $params['sedes_id'], $alumno_id );
+        
+        echo '<BR>FIN inicialización sede id '.$params['sedes_id'];
+    }
+    
+    
+    
+    private function _pre()
+    {
+        $this->apagarLayout();
+        $this->apagarView();
+        
+        $params = $this->getRequest()->getParams();
+        $params = remove_all_HTML_array( $params );
+        
+        return $params;
+        
+    }
+    
+    
+    /*      OLD
+    public function resetValorAbonadoSegunTotalPagadoAction()
+    {
+        $this->apagarLayout();
+        $this->apagarView();
+        
+        $params = $this->getRequest()->getParams();
+        $params = remove_all_HTML_array( $params );
+        
+        if( !isset($params['sedes_id']) || !is_numeric($params['sedes_id']) ||
+            !isset($params['anio']) || !$params['anio'] ){
+            die('falta el parametro sedes_id o anio');
+        }
+        $sedes_id = (int) $params['sedes_id'];
+        
+        //ver($alumnosId,'$alumnosId');
+        $trabajados = $this->elementoValuadoAlumnoColeccion
+                            ->resetValorAbonadoACadaEVADeLaSede( $sedes_id );
+        
+ver($trabajados,'$trabajados');
+        return;
+    }
+     * 
+     */
+    
+    
+}

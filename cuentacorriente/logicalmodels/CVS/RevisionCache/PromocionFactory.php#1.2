@@ -1,0 +1,124 @@
+<?php
+
+/*
+ * Crea la promocion correspondiente
+ */
+
+require_once 'cuentacorriente/logicalmodels/PromocionMatricula.php';
+
+/**
+ * Description of PromocionFactory
+ *
+ * @author mauricio
+ */
+class PromocionFactory 
+{
+    // PROMOCIONES VIGENTES
+    /* la funciones staticas no permiten el uso de variables no estáticas,
+     * asi que la meti el array dentro de la función
+    public $promos = [  'PromocionMatricula',
+                        // 'Otra...',
+                        // 'Otra...',
+                    ];
+     */
+    
+    
+    /*
+     * Si detecta que el pago realizado involucra algun tipo de promo, 
+     * opera al respecto.
+     * 
+     * $pagosData   <array>
+     *     array(5) {
+     *       "objetos_debito" => <Array post pago> con las deudas a las que se destino todo o parte del pago:
+     *       ["objetos_debito"] => array(1) {
+     *         [88928] => object(CuentaCorriente)#682 (13) {
+     *           ["_id":"CuentaCorriente":private] => string(5) "88928"
+     *           ["_alumnos_id":"CuentaCorriente":private] => string(8) "19023279"
+     *           ["_tipo_operacion":"CuentaCorriente":private] => string(18) "FACTURA_AUTOMATICA"
+     *           ["_fecha_operacion":"CuentaCorriente":private] => string(10) "2020-12-01"
+     *           ["_monto":"CuentaCorriente":private] => string(5) "-2500"
+     *           ["_cobertura":"CuentaCorriente":private] => int(-2200)
+     *           ["_motivo":"CuentaCorriente":private] => string(30) "2021, MAT, profesorado nivel 1"
+     *           ["_comprobante_sede":"CuentaCorriente":private] => NULL
+     *           ["_comprobante":"CuentaCorriente":private] => NULL
+     *           ["_persona_en_caja":"CuentaCorriente":private] => string(18) "proceso_automatico"
+     *           ["_observaciones":"CuentaCorriente":private] => NULL
+     *           ["_usuario_nombre":"CuentaCorriente":private] => string(13) "USUARIO_LOCAL"
+     *           ["_fecha_hora_de_sistema":"CuentaCorriente":private] => string(26) "2021-01-31 17:32:47.418000"
+     *         }
+     *       }
+     *          "pagos" => <array> con parcial destinado a cada item
+     *       ["pagos"] => array(1) {
+     *         [88928] => int(2200)
+     *       }
+     *          "evscxa" => <array> con evscxa_id trabajado, ctacte_id y monto destinado.
+     *       ["evscxa"] => array(1) {
+     *         [6285] => array(1) {
+     *           [88928] => int(2200)
+     *         }
+     *       }
+     * 
+     * OUTPUT
+     *  true    nada por hacer
+     */
+    public static function crearPromoImplicitaDesdePago( $alumnos_id, $pagosData )
+    {
+        if( !isset($pagosData['evscxa']) || count($pagosData['evscxa'])==0 ){
+            // return false;    // no hay indicación de que se está pagando
+        } 
+        
+        $promos = [ 'PromocionMatricula',
+                    // 'Otra...',
+                    // 'Otra...',
+                    ];
+        
+        
+        foreach( $promos as $promoClass ){
+            if( $evscxa_id_con_promo=$promoClass::hayPromoImplicitaEnPago( $pagosData ) ){
+                return new $promoClass( $alumnos_id, $pagosData, $evscxa_id_con_promo );
+            }
+        }
+        return false; // no hay promo
+    }
+    
+    
+    
+    
+    /*
+     * $arrayCobro
+     *      <array>
+                'sedes_id', 
+                'anio',
+                'sedes_cursosxanio_id',
+                'scxaa_id',
+                'nombre_computacional',     //  "profesorado"
+                'clasificador_nombre',      //  "nivel"
+                'clasificador_valor',       //  "3"
+                'evscxa_id',
+                'ev_id',
+                'ev_abreviatura',
+                'ev_descripcion',
+                'eva_id',
+                'fecha_inicio_calculado
+                'evscxa_valor',
+                'alumnos_id', 
+                'apellido',
+                'nombres',
+                'nombre_espiritual',
+                'valor_modificado',
+                'valor_final_calculado'
+                'fecha_finalizo'
+     * 
+     */
+    public function esPromocion( $arrayCobro, $valorOriginal, $valorNuevo )
+    {
+        if( PromocionMatricula::hayPromoImplicitaEnPago( $arrayCobro, $valorOriginal, $valorNuevo ) ){
+            
+        }
+        
+        // if( PromocionPirulo::hayPromoImplicitaEnPago ){
+        // }
+    }
+    
+    
+}

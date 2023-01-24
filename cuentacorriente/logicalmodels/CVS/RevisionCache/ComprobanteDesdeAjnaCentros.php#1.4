@@ -1,0 +1,208 @@
+<?php
+
+
+if( APPLICATION_ENV == 'development' ){
+    require_once 'api/TEST/ajna_centros_emulado/function/api_generar_comprobante_de_pago.php';
+}else{
+    // TODO MAU COMPROBANTES AUTOMATICOS 
+    // CUANDO MARIO CAMBIAR Y HABILITAR LAS LINEAS SIGUIENTES
+    // CUANDO DEFINA EL PHP Y LA FUNCION A USAR
+    // require_once __GESTION_DIR_ABSOLUTO_A_ADMINISTRACION__.'function/api_generar_comprobante_de_pago.php'; 
+    // función a usar: comprobante_TODO_MAU()
+}
+
+// require_once 'extensiones/generales/MiMensajero.php'; POR AHORA SIN USO
+
+class ComprobanteDesdeAjnaCentros {
+    
+    const DeudaViejaNoIdentificada = 'DEUDA_NO_IDENTIFICADA';
+    // private $_MiMensajero;
+    
+    /*
+    private function __construct() {
+        $this->_MiMensajero = new MiMensajero();
+    }
+     */
+    
+    
+    /*
+     * INPUT
+     *  $alumnos_id
+     * 
+     * $listaPreDeudasPorEvscxa
+     *  lista seleccionable  <array de arrays>
+            [476] => array(29) {
+              ["cuentas_corrientes_id"] => string(5) "33833"
+              ["alumnos_id"] => string(3) "178"
+              ["tipo_operacion"] => string(18) "FACTURA_AUTOMATICA"
+              ["monto"] => string(4) "-700"
+              ["cobertura"] => string(4) "-100"
+              ["motivo"] => string(30) "2017, MAT, profesorado nivel 4"
+              ["fecha_operacion"] => string(10) "2017-03-01"
+              ["scxa_id"] => string(2) "46"
+              ["sedes_id"] => string(1) "3"
+              ["anio"] => string(4) "2017"
+              ["cursos_id"] => string(1) "6"
+              ["nombre_humano"] => string(30) "Profesorado Natha Yoga Nivel 4"
+              ["descripcion"] => string(27) "Profesorado de Yoga Curso 4"
+              ["valor_modificado"] => NULL
+              ["valor_final_calculado"] => string(3) "700"
+              ["ev_abreviatura"] => string(3) "MAT"
+              ["evscxa_id"] => string(3) "476" *********************************
+              ["evscxa_fecha_inicio"] => string(10) "2017-03-01"
+              ["evscxa_valor"] => string(3) "700"
+              ["ev_numero_de_orden"] => string(1) "1"
+              ["ev_id"] => string(1) "1"
+              ["prioridad_segun_anio"] => string(1) "3"
+              ["scxa_ordenado"] => string(1) "2"
+              ["sum_monto_debitos"] => string(4) "-700"
+              ["sum_cobertura_debitos"] => string(4) "-100"
+              ["sum_saldo_debitos"] => string(4) "-600"
+              ["sum_monto_debitos_a_cuenta"] => string(1) "0"
+              ["sum_cobertura_debitos_a_cuenta"] => string(1) "0"
+              ["sum_saldo_debitos_a_cuenta"] => string(1) "0"
+            }
+     * 
+        $debitosTrabajados
+            <array>     Detalle con los objetos CuentaCorrienteDebito  saldados
+                array(3) {
+                  ["objetos_debito"] => array(2) {  OBJETOS QUE FUERON/SERÁN MODIFICADOS
+                    [41861] => object(CuentaCorriente)#338 (12) {
+                      ["_id":"CuentaCorriente":private] => string(5) "41861"
+                      ["_alumnos_id":"CuentaCorriente":private] => string(3) "865"
+                      ["_tipo_operacion":"CuentaCorriente":private] => string(18) "FACTURA_AUTOMATICA"
+                      ["_fecha_operacion":"CuentaCorriente":private] => string(10) "2018-06-01"
+                      ["_monto":"CuentaCorriente":private] => string(5) "-1700"
+                      ["_cobertura":"CuentaCorriente":private] => int(-1700)
+                      ["_motivo":"CuentaCorriente":private] => string(29) "2018, CU3 profesorado nivel 2"
+                      ["_comprobante":"CuentaCorriente":private] => string(8) "no_tiene"
+                      ["_persona_en_caja":"CuentaCorriente":private] => string(18) "proceso_automatico"
+                      ["_observaciones":"CuentaCorriente":private] => string(276) "Sistemas inicializa coberturas. Le asigna $200Sistemas inicializa coberturas. Le asigna $300Sistemas inicializa coberturas. Le asigna $300Sistemas inicializa coberturas. Le asigna $55Sistemas inicializa coberturas. Le asigna $845Sistemas inicializa coberturas. Le asigna $1700"
+                      ["_usuario_nombre":"CuentaCorriente":private] => string(18) "proceso_automatico"
+                      ["_fecha_hora_de_sistema":"CuentaCorriente":private] => string(19) "2018-06-01 13:13:14.123456"
+                    }
+                    [41545] => object(CuentaCorriente)#344 (12) {
+                      ["_id":"CuentaCorriente":private] => string(5) "41545"
+                      ...
+                    }
+                  }
+                  ["pagos"] => array(2) {
+                    [41861] => int(1700)
+                    [41545] => int(300)
+                  }
+                  ["evscxa"] => array(2) {
+                    [334] => array              pagos que se hicieron a este item
+                                ctacteid
+                                [41861] => int(1700)
+                                [41545] => int(300)
+                    [335] => array
+                                [41545] => int(300)
+                  }
+                  ["credito_disponible"] => int(0)
+                }
+     * 
+     * Cuando sea un pago a cuenta irá así:
+     * 
+     * 
+     */
+    public function getComprobanteDesdeAjnaCentros( $alumnos_id, array $listaDeudasPorEvscxa, array $debitosTrabajados )
+    {
+        /*
+         * Función en Ajna Centros:
+         * generarComprobanteEnAjnaCentros()
+         * INPUT
+         *      <array>
+         *          'dni'       =>
+         *          'sede_id'  => 
+         *          'pagos' =>  <array>
+         *                          <array>
+         *                              'descripcion'       =>
+         *                              'deuda_pre_pago'    => 
+         *                              'pago_ahora'        =>
+         *          'impagos'
+         *                          <array>
+         *                              'descripcion'
+         *                              'deuda'
+         * 
+         */
+        $aux =  array(  'dni'   => $alumnos_id ,
+                        'pagos' => $this->_getDetalleDeLoPagado( $listaDeudasPorEvscxa, $debitosTrabajados ) );
+        return $comprobanteString = 'A_'. generarComprobanteEnAjnaCentros( $alumnos_id, $aux );
+    }
+    
+    /*
+     * OUTPUT
+     * $detallesDelPago <array>   
+     *                    'descripcion'    => <string> "2020, MAT Profesorado Nivel 1" o "A_CUENTA"
+     *                    'deuda_pre_pago' => 100  // antes de hacer el pago
+     *                    'pago_ahora'     => 1900
+     */
+    private function _getDetalleDeLoPagado( $listaPreDeudasPorEvscxa, $debitosTrabajados )
+    {
+        $items = array();
+        //ver($debitosTrabajados,'$debitosTrabajados');        
+        //ver($listaPreDeudasPorEvscxa,'$listaPreDeudasPorEvscxa');    
+
+        
+        if( count($debitosTrabajados['objetos_debito'])>0 ){
+            // foreach( $debitosTrabajados['objetos_debito'] as $ctacteId => $CuentaCorriente ){
+            foreach( $debitosTrabajados['evscxa'] as $evscxaId => $debitosPagados ){
+                $item = array();
+                // En la lista de deudas, los que no pudieron identificarse, 
+                // se agrupan en la key 'A_CUENTA';
+                // los totales llegan en otras keys del array;
+                // y aunque tienen un motivo, podría haber otros englobados en ese.
+                // Algunas veces luego de recibir un pago,
+                // mis procesos los identifican y los van armando correctamente,
+                // por eso podría ser que al ver la pantalla de recalculos
+                // podrían aparecer nuevos conceptos, pero siempre bajo la deuda correctamente recalculada.
+                if( !isset($listaPreDeudasPorEvscxa[$evscxaId]) ){
+                    $keyEnPreDeudas = 'A_CUENTA';
+                    $deuda = abs( $listaPreDeudasPorEvscxa[$keyEnPreDeudas]['sum_saldo_debitos_a_cuenta'] );
+                }else{
+                    $keyEnPreDeudas = $evscxaId;
+                    $deuda = abs( $listaPreDeudasPorEvscxa[$keyEnPreDeudas]['sum_saldo_debitos'] );
+                }
+                
+                $item['descripcion']= ( !is_null($listaPreDeudasPorEvscxa[$keyEnPreDeudas]['motivo']) )? $listaPreDeudasPorEvscxa[$keyEnPreDeudas]['motivo'] : self::DeudaViejaNoIdentificada;
+                $item['deuda_pre_pago'] = $deuda;
+                $item['pago_ahora']= array_sum( $debitosPagados );
+                
+                $items[]= $item;
+            }
+        }else{
+            // se trata de un pago a cuenta
+            $item['descripcion'] = 'A_CUENTA'; // OJO NO CAMBIAR ESTE STRING YA QUE SE DEFINIO ASI COMO INPUT PARA AJNA CENTROS
+            $item['deuda_pre_pago']= 0;
+            $item['pago_ahora']= $debitosTrabajados['monto'];
+            $items[]= $item;
+        }
+        
+        return $this->_unificarItemsNoIdentificados( $items );
+    }
+    
+    
+    
+    private function _unificarItemsNoIdentificados( $items )
+    {
+        $itemSumaPago = 0;
+        $itemSumaDeuda = 0;
+        $flag = false;
+        foreach( $items as $key => $item ){
+            if( $item['descripcion'] == self::DeudaViejaNoIdentificada ){
+                $itemSumaPago+=$item['pago_ahora'];
+                $itemSumaDeuda+=$item['deuda_pre_pago'];
+                unset( $items[$key] );
+                $flag = true;
+            }
+        }
+        if( $flag ){
+            $items[]= array('descripcion'       => self::DeudaViejaNoIdentificada,
+                            'deuda_pre_pago'    => $itemSumaDeuda,
+                            'pago_ahora'        => $itemSumaPago,
+                        );
+        }
+        return $items;
+    }
+    
+}

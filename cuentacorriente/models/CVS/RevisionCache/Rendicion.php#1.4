@@ -1,0 +1,122 @@
+<?php
+
+/*
+ * Una Rendición es la que efectuan los coordinadores a Sede Central.
+ * 
+ * 
+ */
+
+require_once ("misFunciones.php");
+
+class Rendicion 
+{
+    private $_id;       
+    private $_sedes_id;
+    private $_grupo_elementosvaluados; // CUotas, DEX examenes, PLAtaforma
+    private $_fecha_desde;
+    private $_fecha_hasta;
+    private $_total;
+    private $_fue_rendida;    // flag
+    private $_fecha_hora_de_creacion;
+    private $_fecha_hora_de_rendicion_a_central;
+    
+
+    public function __construct( array $valores )
+    {
+        $this->_id              = isset( $valores['id'] )? $valores['id'] : null;
+        $this->_sedes_id        = isset( $valores['sedes_id'] )? $valores['sedes_id'] : null;       
+        $this->_grupo_elementosvaluados 
+                                = isset( $valores['grupo_elementosvaluados'] )? $valores['grupo_elementosvaluados'] : 'CU';       
+        $this->_fecha_desde     = isset( $valores['fecha_desde'] )? $valores['fecha_desde'] : null; // datetimeMicroseconds();  
+        $this->_fecha_hasta     = isset( $valores['fecha_hasta'] )? $valores['fecha_hasta'] : datetimeMicroseconds();  
+        $this->_total           = isset( $valores['total'] )? $valores['total'] : null;
+        $this->_fue_rendida     = isset( $valores['fue_rendida'] )? $valores['fue_rendida'] : 0;
+        $this->_fecha_hora_de_creacion              = isset( $valores['fecha_hora_de_creacion'] )? $valores['fecha_hora_de_creacion'] : datetimeMicroseconds(); //date('Y-m-d H:i:s')
+        $this->_fecha_hora_de_rendicion_a_central   = isset( $valores['fecha_hora_de_rendicion_a_central'] )? $valores['fecha_hora_de_rendicion_a_central'] : null;
+    }
+
+    public function getId()
+    {
+        return $this->_id;
+    }
+
+    public function getSedesId()
+    {
+        return $this->_sedes_id;
+    }
+
+    public function getGrupoElementosValuados()
+    {
+        return $this->_grupo_elementosvaluados;
+    }
+
+    public function getFechaDesde()
+    {
+        return $this->_fecha_desde;
+    }
+
+    public function getFechaHasta()
+    {
+        return $this->_fecha_hasta;
+    }
+    
+    public function setFechaHasta($fecha)
+    {
+        $this->_fecha_hasta = $fecha;
+    }
+
+    public function getTotal()
+    {
+        return $this->_total;
+    }
+
+    public function setTotal( $total )
+    {
+        return $this->_total = $total;
+    }
+
+    public function fueRendida()
+    {
+        return $this->_fue_rendida;
+    }
+
+    public function getFechaHoraDeCreacion()
+    {
+        return $this->_fecha_hora_de_creacion;
+    }
+
+    public function getFechaHoraDeRendicionACentral()
+    {
+        return $this->_fecha_hora_de_rendicion_a_central;
+    }
+    
+    
+    public function sumar1Milisegundo( $fecha=null )
+    {
+        $fecha = ( is_null($fecha) )? $this->getFechaHasta() : $fecha;
+        $date = substr( $fecha, 0, 10 );
+        $microtime = substr( $fecha, -6 );
+        $microtime2 = $microtime+1;
+        return substr( $fecha, 0, -6 ).$microtime2;
+    }
+
+
+
+     /*
+     * Convierte el objeto en array.
+     * Debe hacerse desde la propia clase pues se trata de variables privadas.
+     */
+    public function convertirEnArray()
+    {
+        //return get_object_vars($this); //esto lo devuelve con los underscord
+        $miIterator=array();
+        foreach($this as $key => $value) {
+            $key=substr($key,1); //con esto le quito el underscord primero.
+            $miIterator[$key]=$value;
+        }
+        return $miIterator;
+    }
+
+
+
+}

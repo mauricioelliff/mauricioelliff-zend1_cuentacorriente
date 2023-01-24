@@ -1,0 +1,109 @@
+<?php
+
+require_once 'admin/logicalmodels/ElementosValuadosExtras.php';
+require_once 'cuentacorriente/logicalmodels/CoberturaOperaciones.php';
+require_once 'cuentacorriente/logicalmodels/FuncionesSobreEVAs.php';
+require_once 'admin/models/AuditoriaColeccion.php';
+require_once 'extensiones/generales/MiMensajero.php'; 
+
+abstract class RegistroCredito 
+{
+    protected $datosDelMov;
+    protected $simular;
+    protected $alumnos_id;
+    protected $cuentaCorrienteColeccion;
+    protected $CuentaCorrienteCredito;
+    protected $deudasPreviasAlPago;
+    protected $listaDeudasPorEvscxa;
+    protected $evscxaIdsPaga;       // <array> id numerico => monto   
+    protected $otrosConceptosPaga;  // <array> key string => monto
+    protected $otrosConceptos;
+    protected $respuestas=[];
+    protected $coberturaOperaciones;
+    protected $esReasignacionDePago;
+
+    
+    public function __construct( $datosDelMov, $simular=false )
+    {
+        $this->datosDelMov = $datosDelMov;
+        $this->simular = $simular;
+        $this->esReasignacionDePago = ( key_exists('ctacte_id',$datosDelMov) && is_numeric($datosDelMov['ctacte_id']) && $datosDelMov['ctacte_id']>0 )? true : false;
+        $this->otrosConceptos = ElementosValuadosExtras::otrosConceptosEnModoUrl();
+        
+        // pagos indicados desde $datosDelMov
+        $this->otrosConceptosPaga = (key_exists('seleccion_otros_conceptos', $this->datosDelMov ))? $this->datosDelMov['seleccion_otros_conceptos'] : array();
+        $this->evscxaIdsPaga = (is_array( $this->datosDelMov['seleccion_deuda_item'] ))? $this->datosDelMov['seleccion_deuda_item'] : array();
+        
+        // data general del sistema
+        $this->alumnos_id = $this->datosDelMov['alumnos_id'];
+        $this->cuentaCorrienteColeccion = new CuentaCorrienteColeccion();
+        $this->auditoriaColeccion = new AuditoriaColeccion();
+        
+        // deuda inicial
+        $this->listaDeudasPorEvscxa = 
+                $this->cuentaCorrienteColeccion->getEvscxaPorSaldar( $this->alumnos_id );
+        
+        // inicialización para el uso de cobertura
+        $this->coberturaOperaciones    = new CoberturaOperaciones( USUARIO_SEDE_ID,
+                                                                    $this->cuentaCorrienteColeccion,
+                                                                    new FuncionesSobreEVAs( USUARIO_SEDE_ID )
+                                                                    );
+        // Array diversas respuestas:
+        $this->respuestas = [   'dondeDistribuir'=>[],  // datos de los débitos con deuda
+                                'objetos_debito'=>[],   // objetos CuentaCorriente de tipo deuda.
+                                'pagos'=>[],            // array con los pagos que se van calculando.
+                                'monto'=>0, // El monto total, en 'otros conceptos'
+                                            // tiene que ser cero 
+                                            // para que no modifique el saldo en el cartelito de confirmación,
+                                            // ya que estos importes no deben afectar a la cuenta corriente. 
+                                            // Pero una vez confirmada la operación, paso el monto real. 
+                                'errores'=>[]
+                            ];
+    }
+    
+    // String para el campo motivo, con los débitos trabajados
+    protected function descripcionMotivosAcademico()
+    {
+        $motivo='';
+        if( count($this->respuestas['objetos_debito'])>0 ){
+            // motivo será la concatenación del motivo deuda + el importe pagado:
+            foreach( $this->respuestas['objetos_debito'] as $CuentaCorriente ){
+                $motivo.= $CuentaCorriente->getMotivo().
+                        '('.$this->respuestas['pagos'][$CuentaCorriente->getId()].'). ';
+            }
+        }
+        return $motivo;
+    }  
+    
+    protected function calcularMontos()
+    {
+        $formacionKey = ElementosValuadosExtras::defaultFormacion();
+        $this->respuestas['a_cuenta'] = ( key_exists('a_cuenta',$this->datosDelMov) )?$this->datosDelMov['a_cuenta']: 0;
+        $this->respuestas['monto_formacion'] = ( key_exists($formacionKey,$this->otrosConceptosPaga) )? $this->otrosConceptosPaga[$formacionKey] : 0;
+        $this->respuestas['monto_otros_conceptos'] = array_sum( array_values_recursive($this->otrosConceptosPaga) )-$this->respuestas['monto_formacion'];
+        $this->respuestas['monto_academico'] = 
+                array_sum( array_values_recursive($this->datosDelMov['seleccion_deuda_item']) );
+        $aCuenta = ($this->respuestas['monto_formacion']>0)? $this->respuestas['monto_formacion'] : $this->respuestas['a_cuenta'];
+        $this->respuestas['monto'] =    $this->respuestas['monto_academico']
+                                      + $aCuenta //$this->respuestas['monto_formacion']
+                                      + $this->respuestas['monto_otros_conceptos'];
+        
+        $this->datosDelMov['monto']= $this->respuestas['monto'];
+    }
+    
+ 
+    // Modifica una propiedad privada del objeto
+    protected function modificaCredito( $campo, $valor )
+    {
+        $values = $this->CuentaCorrienteCredito->convertirEnArray();
+        $values[$campo]=$valor;
+        $this->CuentaCorrienteCredito = new CuentaCorriente( $values );
+    }
+    
+    public function getCamposIndispensables( $tipoOperacion )
+    {
+        return $this->cuentaCorrienteColeccion
+                    ->getCamposIndispensablesSegunTipoOperacion( $tipoOperacion );
+    }
+    
+}

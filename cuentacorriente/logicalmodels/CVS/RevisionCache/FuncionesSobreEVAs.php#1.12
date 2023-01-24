@@ -1,0 +1,609 @@
+<?php
+
+/*
+ */
+
+/**
+ * Description of FuncionesComunes
+ *
+ * @author mauricio
+ */
+
+require_once 'cuentacorriente/models/ViewsContableColeccion.php';
+require_once 'admin/models/ViewCursoAlumno.php';
+require_once 'default/models/Query.php';
+
+
+class FuncionesSobreEVAs 
+{
+
+    public $viewContableColeccion;
+    private $_viewCursoAlumno;
+    public $evasData = null;    // datos de los elementos valuados
+    
+    public $sedes_id;
+    private $_evscxa;
+    
+    private $_cursosDelAlumno;  
+    
+    public function __construct( $sedes_id )
+    {
+        $this->viewContableColeccion = new ViewsContableColeccion();
+        $this->_viewCursoAlumno = new ViewCursoAlumno();
+        $this->sedes_id = $sedes_id;
+        
+    }
+    
+
+    /*
+     * Dado un string, proveniente de un motivo texto en la cuenta corriente,
+     * intenta obtener el ID correspondiente de ElementoValuadoSedeCursoxanio .
+     * Está función será usada normalmente en los procesos de inicialización,
+     * cuando aun no se contaba con el dato en tabla de relación ctacte ev.
+     * Además es una función pesada, es cuanto a la data que necesita para 
+     * poder rastrear los datos llegados.
+     * 
+     * INPUT
+     *      $rastrear   
+     *          array(5) {
+     *              ["alumnos_id"]
+                    ["anio"] => string(4) "2017"
+                    ["ev_abreviatura"] => string(3) "MAT"
+                    ["nombre_computacional"] => string(11) "profesorado"
+                    ["clasificador_nombre"] => string(5) "nivel"
+                    ["clasificador_valor"] => string(1) "1"
+                  }
+
+     * OUTPUT
+     * <int> evscxa_id  o   False
+     *  
+     */
+    public function buscarSuCorrespondienteEvscxaId( $rastrear )
+    {
+        if( !isset( $this->_cursosDelAlumno[$rastrear['alumnos_id']]) ){
+            $this->_cargarCursosDelAlumno( $rastrear['alumnos_id'] );
+        }
+        $scxaId = $this->_getScxaIdDesdeLosCursosDelAlumno( $rastrear );
+        
+        $evscxaValues = $this->getEVSCXA( $rastrear['anio'] );
+     
+        foreach( $evscxaValues as $evValues ){
+            if( $evValues['anio']           == $rastrear['anio']    &&
+                $evValues['sedes_cursosxanio_id'] == $scxaId        &&  //no se si este dato es necesario
+                $evValues['ev_abreviatura'] == $rastrear['ev_abreviatura']  
+                    ){
+                
+                if( $evValues['evscxa_id']==null && DEBUGING ){
+                    echo '<br>ATENCION: ESTE item de alumno, NO TIENE evscxa_id asignado:';
+                    ver($evValues,'$evaValues');
+                    die();
+                }
+                return $evValues['evscxa_id'];
+            }
+        }
+        return false;
+    }
+    
+    
+    /*
+     * OUTPUT
+     * 
+        array(1) {
+          [3] => array(1) {                     sedes_id
+            [2017] => array(44) {                   año
+              [0] => array(13) {                        ELEMENTOS VALUADOS
+                ["sedes_id"] => string(1) "3"
+                ["cursosxanio_id"] => string(1) "3"
+                ["anio"] => string(4) "2017"
+                ["sedes_cursosxanio_id"] => string(2) "41"
+                ["evscxa_id"] => string(3) "421"
+                ["evscxa_fecha_inicio"] => string(10) "2017-03-01"
+                ["evscxa_valor"] => string(3) "700"
+                ["evcxa_numero_de_orden"] => NULL
+                ["ev_id"] => string(1) "1"
+                ["ev_abreviatura"] => string(3) "MAT"
+                ["ev_dia_inicio_de_cobro_default"] => string(1) "1"
+                ["ev_mes_inicio_de_cobro_default"] => string(1) "3"
+                ["ev_numero_de_orden"] => string(1) "1"
+              }
+              [1] => array(13) {
+                ["sedes_id"] => string(1) "3"
+                ["cursosxanio_id"] => string(1) "3"
+                ["anio"] => string(4) "2017"
+                ["sedes_cursosxanio_id"] => string(2) "41"
+     *          ...
+     * 
+     */
+    public function getEVSCXA( $anio )
+    {
+        if( !isset( $this->_evscxa[ $this->sedes_id ][$anio] ) ){
+            $this->_evscxa[ $this->sedes_id ][$anio] = 
+                    $this->viewContableColeccion->getEVSCXA( $this->sedes_id, $anio );
+        }
+        return $this->_evscxa[ $this->sedes_id ][ $anio ];
+    }
+    
+    /*
+     * OUTPUT
+     *  un array similar a esto:
+            array(65) {
+              [786] => array(19) {
+                [0] => array(21) {
+                  ["sedes_id"] => string(1) "3"
+                  ["anio"] => string(4) "2017"
+                  ["sedes_cursosxanio_id"] => string(3) "211"
+                  ["scxaa_id"] => string(4) "2145"
+                  ["nombre_computacional"] => string(11) "profesorado"
+                  ["clasificador_nombre"] => string(5) "nivel"
+                  ["clasificador_valor"] => string(1) "1"
+                  ["evscxa_id"] => string(4) "2091"
+                  ["ev_id"] => string(1) "1"
+                  ["ev_abreviatura"] => string(3) "MAT"
+                  ["eva_id"] => string(5) "17667"
+                  ["fecha_inicio_calculado"] => string(10) "2017-03-01"
+                  ["evscxa_valor"] => string(3) "700"
+                  ["alumnos_id"] => string(3) "786"
+                  ["apellido"] => string(4) "Arru"
+                  ["nombres"] => string(5) "Maite"
+                  ["nombre_espiritual"] => string(0) ""
+                  ["valor_modificado"] => NULL
+                  ["valor_final_calculado"] => string(3) "700"
+                  ["valor_abonado"] => string(3) "700"
+                  ["fecha_finalizo"] => string(10) "2017-10-01"
+                }
+     * 
+     */
+    // Si ya los tiene en RAM, devuelve esos. ( cuidado en actualizaciones)
+    public function getEvasData( $alumnos_id, $anio=null, $soloMayoresACero=false, $recalcularSiYaExisteEnRAM=false )
+    {
+        if( $this->evasData === null || $recalcularSiYaExisteEnRAM || !key_exists($alumnos_id, $this->evasData ) ){
+            $where = array( 'alumnos_id' => $alumnos_id );
+            if( $anio!=null ){
+                $where['anio']=$anio;
+            }
+            if( $soloMayoresACero ){
+                $this->evasData = $this->viewContableColeccion->getEVAsConMontoMayorACero( $where );
+            }else{
+                $this->evasData = $this->viewContableColeccion->getEVAsConCualquierMonto( $where );
+            }
+        }
+        return $this->evasData;
+    }
+    
+    public function getTodosLosEVADelAlumno( $alumnos_id )
+    {
+        $evasAlumnos = $this->viewContableColeccion->getEVAsConCualquierMonto( array( 'alumnos_id' => $alumnos_id ) );
+        return ( ( isset($evasAlumnos[$alumnos_id]) )? $evasAlumnos[$alumnos_id] : false);
+    }
+    
+    // ordenados por fecha de inicio del item
+    public function getMovimientosDelAlumno( $alumnos_id )
+    {
+        return $this->viewContableColeccion->getEVAsConCualquierMontoDeEstosAlumnos($alumnos_id ) ;
+    }
+    
+    /*
+    public function getDeudasTodasDelAlumno( $alumnos_id )
+    {
+        $movimientosAlumnos = $this->getMovimientosDelAlumno( $alumnos_id );
+        
+        $movimientoDelAlumno = $movimientosAlumnos[$alumnos_id];
+        $deudas = array();
+        foreach( $movimientoDelAlumno as $movimiento ){
+            if( $movimiento['valor_final_calculado']>0 ){
+                $deudas[]=$movimiento;
+            }
+        }
+        return $deudas;
+    }
+     * 
+     */
+    
+    
+    
+    
+
+    
+    /*
+     * Es la versión actualizada de la fn. getEVAsDetallado() 
+     * Mientrás aquella estimaba que se había pagado 
+     * partiendo de su total abonado 
+     * y una resta iterativa contra todas sus deudas.
+     * Esta obtiene un exacto de que items se pagaron 
+     * (de manera expresa o en algoritmo de a cuenta 
+     * que los selecciona dando prioridad a los más antiguos).
+     * 
+     * La pantalla para mostrar lo que está pago y debe,
+     * será la mísma de colores con cada EVA
+     * 
+     * 
+     */
+    public function getAlumnosSaldos( $alumnos_id, array $filtrar=null )
+    {
+        $saldos = $this->getEVAsYSusValoresAbonados( $alumnos_id );    
+              
+        if( $filtrar ){
+            $saldos = $this->filtrarEVAs( $saldos, $filtrar, true );
+        }
+        return $saldos;
+    }
+    
+    
+    /*
+     * Obtiene datos de los EVAs, la CuentaCorriente y 
+     * datos de la tabla de relación.
+     * 
+     * 
+     * 
+     * OUTPUT
+            [10] => array(68) {
+                ........
+                ... ADEMAS DE MUCHOS CAMPOS DE view_alumnos_valores, TRAE ESTOS:
+                ["id"] => string(1) "3"
+                ["cursos_id"] => string(1) "3"
+                ["sedes_id"] => string(1) "3"
+                ["cursosxanio_id"] => string(1) "1"
+                ["anio"] => string(4) "2018"
+                ["scxaa_id"] => string(4) "2646"
+                ["sedes_cursosxanio_id"] => string(3) "222"
+                ["alumnos_id"] => string(3) "786"
+                ["dni"] => string(3) "786"
+                ["apellido"] => string(4) "Arru"
+                ["nombres"] => string(5) "Maite"
+                ["evscxa_id"] => string(4) "2194"
+                ["evscxa_fecha_inicio"] => string(10) "2018-05-01"
+                ["fecha_inicio_calculado"] => string(10) "2018-05-01"
+                ["ev_id"] => string(1) "3"
+                ["ev_abreviatura"] => string(3) "CU2"
+                ["evscxa_valor"] => string(4) "1700"
+                ["eva_id"] => NULL
+                ["valor_modificado"] => NULL
+                ["valor_modificado_motivo"] => NULL
+                ["valor_final_calculado"] => string(4) "1700"
+                ["ctacte_alumnos_id"] => string(3) "786"
+                ["relacion_evscxa_id"] => string(4) "2193"
+                ["monto"] => string(5) "-1700"
+                ["cobertura"] => string(4) "-400"
+                ["evscxaa_saldo"] => string(5) "-1300"    // sumatoria desde la tabla de relación
+              }
+     * 
+     */
+    public function getEVAsYSusValoresAbonados( $alumnos_id )
+    {
+        // Desde view_alumnos_valores  obtengo los EVA
+        // y sus valores finales a pagar.
+        // 
+        // Desde la tabla de relacion con evscxa y Cuentas corrientes,
+        // obtengo el saldo final de cada evscxaa
+        // 
+        $whereAlumnos = ( is_array( $alumnos_id ) )? ' IN ("'.implode('", "',$alumnos_id).'" )' : " = '$alumnos_id'";
+        
+	$sql = 'SELECT * FROM view_alumnos_valores AS A 
+                LEFT JOIN 	
+                        (SELECT CTACTE.alumnos_id AS ctacte_alumnos_id, 
+                        RELACION.elementosvaluados_sedes_cursosxanio_id AS relacion_evscxa_id, 
+                        CTACTE.monto AS monto, CTACTE.cobertura AS cobertura,
+                        SUM(RELACION.pago_asignado) AS evscxaa_saldo 
+                        FROM yoga_cuentas_corrientes AS CTACTE
+                        LEFT JOIN yoga_cuentascorrientes_elementosvaluados AS RELACION
+                        ON RELACION.cuentas_corrientes_id = CTACTE.id  
+                        WHERE CTACTE.alumnos_id '.$whereAlumnos.' 
+                        AND RELACION.elementosvaluados_sedes_cursosxanio_id IS NOT NULL 
+                        GROUP BY CTACTE.alumnos_id, RELACION.elementosvaluados_sedes_cursosxanio_id ) AS B
+
+                ON A.alumnos_id = B.ctacte_alumnos_id AND A.evscxa_id = B.relacion_evscxa_id	
+                WHERE A.alumnos_id '.$whereAlumnos;
+        // ATENCION!: Debo llamar a CTACTE.alumnos_id con distinto nombre
+        // para que no pise en la salida el valor de "alumnos_id" original que viene
+        // en la view.
+        // Recordemos que al ser un LEFT JOIN, CTACTE.alumnos_id vendrá vació
+        // si el alumno no tiene movimientos.
+        // 
+        // ver($sql,'sql funcionesosbreeva');die();
+		
+	$query = new Query();
+        $resultadoArray = $query->ejecutarQuery($sql);
+        
+        // meto cada item, dentro de una key global del alumno que corresponde
+        $resultadoPorAlumno = array();
+        foreach( $resultadoArray as $values ){
+            $resultadoPorAlumno[ $values['dni'] ] []=$values;
+        }
+        
+        return $resultadoPorAlumno;
+    }
+    
+    
+    
+
+    
+    /*
+     * $wheres
+     *      'alumnos_id'
+     *      'anio'
+     *      'sedes_id'
+     * OUTPUT
+     * <array>                  getAlumnosValores()
+     *      key alumnos_id
+     *      <array>
+                'sedes_id', 
+                'anio',
+                'sedes_cursosxanio_id',
+                'scxaa_id',
+                'nombre_computacional',     //  "profesorado"
+                'clasificador_nombre',      //  "nivel"
+                'clasificador_valor',       //  "3"
+                'evscxa_id',
+                'ev_id',
+                'ev_abreviatura',
+                'eva_id',
+                'fecha_inicio_calculado
+                'evscxa_valor',
+                'alumnos_id', 
+                'apellido',
+                'nombres',
+                'nombre_espiritual',
+                'valor_modificado',
+                'valor_final_calculado'
+                'fecha_finalizo'
+     */
+    public function getEvaToCancel( array $wheres )
+    {
+        $evACancelar = $this->viewContableColeccion
+                            ->getAlumnosValores( 
+                                                $fechaInicio=null, 
+                                                $fechaFin=null, 
+                                                $sedeId=$wheres['sedes_id'],
+                                                $soloMayoresACero=true, 
+                                                $excluirCancelados=true, // por darse de baja x ej.
+                                                $wheres
+                                                );
+        if( !$evACancelar || count($evACancelar)==0 ){
+            return false;    // no tiene EV
+        }
+        return getPrimero( $evACancelar ); // le quito la key de alumnos_id
+    }
+    
+    
+    /*
+     * OUTPUT
+     * <array>                  getAlumnosValores()
+     *      key alumnos_id
+     *      <array>
+                'sedes_id', 
+                'anio',
+                'sedes_cursosxanio_id',
+                'scxaa_id',
+                'nombre_computacional',     //  "profesorado"
+                'clasificador_nombre',      //  "nivel"
+                'clasificador_valor',       //  "3"
+                'evscxa_id',
+                'ev_id',
+                'ev_abreviatura',
+                'eva_id',
+                'fecha_inicio_calculado
+                'evscxa_valor',
+                'alumnos_id', 
+                'apellido',
+                'nombres',
+                'nombre_espiritual',
+                'valor_modificado',
+                'valor_final_calculado'
+                'fecha_finalizo'
+     */
+    public function busquedaDeEva( $evaId )
+    {
+        return $this->viewContableColeccion
+                    ->getAlumnosValores( 
+                                        $fechaInicio=null, 
+                                        $fechaFin=null, 
+                                        $sedeId=0, // Ignorará este dato.
+                                        $soloMayoresACero=false, 
+                                        $excluirCancelados=true,    // por darse de baja por ej.
+                                        $otrosWheres=( 'eva_id='.$evaId )
+                                        );
+    }
+    public function busquedaDeEvscxa( $evscxa_id, $alumnosIds )
+    {
+        $alumnosIds = ( !is_array($alumnosIds) )? array($alumnosIds) : $alumnosIds;
+        $otrosWheres = "evscxa_id=$evscxa_id AND alumnos_id IN ".
+                        '( "'.implode('", "',$alumnosIds).'") ';
+        return $this->viewContableColeccion
+                    ->getAlumnosValores( 
+                                        $fechaInicio=null, 
+                                        $fechaFin=null, 
+                                        $sedeId=0, // Ignorará este dato.
+                                        $soloMayoresACero=false, 
+                                        $excluirCancelados=true,    // por darse de baja por ej.
+                                        $otrosWheres
+                                        );
+    }
+    
+    
+    
+    
+    
+    public function sonEvscxaDelAlumno( $alumnos_id, $evscxaIds )
+    {
+        $evData = $this->getEvasData($alumnos_id);
+        $evscxaDelAlumno = array_keys( $evData[$alumnos_id] );
+        
+        return (count( array_diff( $evscxaIds, $evscxaDelAlumno) )>0 )? false : true;
+    }
+    
+    
+    
+    /*
+     * Dado el array de datos historicos, permite quedarme solo con algunas filas,
+     * manteniendo la deuda asignada desde registros previos
+     *
+     *
+     * INPUT
+        array desde     
+            getEvasData()
+            getEVAsDetallado()
+            getEVAsYSusValoresAbonados( $alumnos_id )
+     * 
+     * 
+            array(820) {
+                key alumnos_id  => array
+                            [0] => array(12) {
+                              ["sedes_id"] => string(1) "3"
+                              ["anio"] => string(4) "2017"
+                              ["sedes_cursosxanio_id"] => string(2) "41"
+                              ["evscxa_id"] => string(1) "3"
+                              ["ev_id"] => string(1) "3"
+                              ["ev_abreviatura"] => string(3) "CU2"
+                              ["fecha_inicio_calculado"] => string(10) "2017-05-01"
+                              ["evscxa_valor"] => string(4) "1250"
+                              ["alumnos_id"] => string(2) "14"
+                              ["apellido"] => string(13) "Baico Neumann"
+                              ["nombres"] => string(10) "Evelyn Sue"
+                              ["nombre_espiritual"] => string(13) "Baico Neumann"
+                              ["valor_modificado"] => NULL
+                              ["valor_final_calculado"] => string(4) "1250"
+                              ["calculo_pago_asignado"]   => "1250"
+                            }
+     * 
+        $arrayKeyValuesBuscados <array> 
+     *                  Define las condiciones por las que un item será aceptado.
+     *                  Las keys deben ser algunas de las de arriba.
+     * 
+     */    
+    public function filtrarEVAs( $evHistorico, $arrayKeyValuesBuscados, $agregarDataDelAlumno=false )
+    {
+        // Filtro para quedarme solo con las columnas que precisa el datagrid,
+        // En este caso, los items del sede-curso-anio
+        $filtrado = array();
+        foreach( $evHistorico as $alumno_id => $items ){
+            
+            $filtrado[$alumno_id] = array();
+            
+            if( $agregarDataDelAlumno ){
+                $flagQueAlumnoEstoyTrabajando = $this->_getAlumnoTrabajando( $items );
+                if( !$flagQueAlumnoEstoyTrabajando ){
+                    $flagQueAlumnoEstoyTrabajando = $this->_getAlumnoData( $alumno_id );
+                }
+            }
+
+            foreach( $items as $key1 => $itemValues ){
+                foreach( $arrayKeyValuesBuscados as $key2 => $valorAceptado ){
+                    if( is_array($itemValues) && $itemValues[ $key2 ] != $valorAceptado ){
+                        continue 2;
+                    }
+                }                
+                $filtrado[$alumno_id][$key1]=$itemValues;
+            }
+            
+            // a las vars totales, les copio además el nombre del alumno... por si no tuviese items con esa data
+            if( $agregarDataDelAlumno ){
+                $filtrado[$alumno_id]+=$flagQueAlumnoEstoyTrabajando;  
+            }
+        }
+        return $filtrado;
+    }
+    private function _getAlumnoTrabajando( $items )
+    {
+        $item = getPrimero( $items );
+        if( !is_array($item) ) return false;     // es uno de los valores finales
+        
+        return array(   'alumnos_id' => $item['alumnos_id'], 
+                        'apellido' => $item['apellido'], 
+                        'nombres' => $item['nombres'], 
+                        'nombre_espiritual' => $item['nombre_espiritual'], 
+                    );
+    }
+    private function _getAlumnoData( $alumno_id )
+    {
+        $Alumno = $this->_alumnoColeccion->obtenerPorIdGeneral( $alumno_id, 'Alumno', 'dni' );
+        $alumnoArray = $Alumno->convertirEnArray();
+        return array(   'alumnos_id' => $alumnoArray['dni'], 
+                        'apellido' => $alumnoArray['apellido'], 
+                        'nombres' => $alumnoArray['nombres'], 
+                        'nombre_espiritual' => $alumnoArray['nombre_espiritual'], 
+                    );
+    }
+    
+    /*
+        array(1) {
+          [786] => array(2) {
+            [0] => array(53) {
+              ["id"] => string(1) "3"
+              ["nombre_humano"] => string(30) "Profesorado Natha Yoga Nivel 1"
+              ["nombre_computacional"] => string(11) "profesorado"
+              ["descripcion"] => string(27) "Profesorado de Yoga Curso 1"
+              ["clasificador_valor"] => string(1) "1"
+              ["clasificador_nombre"] => string(5) "nivel"
+              ["cursos_id_padre"] => string(1) "2"
+              ["cursos_id"] => string(1) "3"
+              ["plan"] => string(4) "2010"
+              ["nombre_sede_centro"] => string(8) "Necochea"
+              ["sedes_id"] => string(1) "3"
+              ["cursosxanio_id"] => string(1) "1"
+              ["anio"] => string(4) "2017"
+              ["scxaa_id"] => string(4) "2145"
+              ["sedes_cursosxanio_id"] => string(3) "211"
+              ["alumnos_id"] => string(3) "786"
+              ["scxaa_fecha_alta"] => NULL
+              ["concurriendo"] => string(1) "0"
+              ["fecha_finalizo"] => string(10) "2017-10-01"
+              ["finalizo_motivo"] => string(1) "B"
+              ["dni"] => string(3) "786"
+              ["apellido"] => string(4) "Arru"
+              ["nombres"] => string(5) "Maite"
+              ["id_viejo"] => NULL
+              ["legajo"] => string(0) ""
+              ["nombre_espiritual"] => string(0) ""
+              ["fecha_nacimiento"] => NULL
+              ["mail"] => string(20) "maite.arrm@gmail.com"
+              ["facebook"] => string(0) ""
+              ["telefono_fijo"] => string(0) ""
+              ["telefono_celular"] => string(11) "2262 535367"
+              ["telefono_whatsapp"] => NULL
+              ["fecha_alta"] => NULL
+              ["estado"] => NULL
+              ["estado_cuando"] => NULL
+              ["observaciones"] => string(0) ""
+              ["preinscripcion_id"] => string(1) "0"
+              ["preinscripcion_fecha"] => NULL
+              ["preinscripcion_sede_centro_id"] => string(1) "3"
+              ["lugar_nacimiento"] => NULL
+              ["nacionalidad"] => NULL
+              ["direccion"] => NULL
+              ["localidad"] => NULL
+              ["provincia"] => NULL
+              ["pais"] => NULL
+              ["profesion"] => NULL
+              ["como_se_entero"] => NULL
+              ["ha_realizado_algun_curso"] => NULL
+              ["cual_curso_ha_realizado"] => NULL
+              ["practica_al_momento_de_inscripcion"] => NULL
+              ["practica_donde"] => NULL
+              ["modo_de_curso_de_interes_al_inscribirse"] => NULL
+              ["nombre_foto"] => NULL
+            }
+     * 
+     */
+    private function _cargarCursosDelAlumno( $alumnos_id )
+    {
+        // reseteo la variable, ya que siempre trabajaré un alumno por vez.
+        // El mantener la key del alumno, me sirve para saber si cambia de alumno.
+        $this->_cursosDelAlumno = array(); 
+        $this->_cursosDelAlumno[ $alumnos_id ] = $this->_viewCursoAlumno->getCursosDelAlumno( $alumnos_id );
+    }
+    
+    private function _getScxaIdDesdeLosCursosDelAlumno( $rastrear )
+    {
+        foreach( $this->_cursosDelAlumno[$rastrear['alumnos_id']] as $cursoValues ){
+            if( $cursoValues['anio'] == $rastrear['anio'] &&
+                $cursoValues['nombre_computacional'] == $rastrear['nombre_computacional'] &&
+                $cursoValues['clasificador_valor'] == $rastrear['clasificador_valor']
+                    ){
+                return $cursoValues['sedes_cursosxanio_id'];
+            }
+        }
+        return false;
+    }
+    
+        
+}

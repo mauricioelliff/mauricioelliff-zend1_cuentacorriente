@@ -1,0 +1,374 @@
+<?php
+
+require_once 'cuentacorriente/logicalmodels/RegistroCredito.php';
+
+
+/**
+ * Registra 1 ingreso de dinero. 
+ * Puede referir a 1 o muchos items.
+ */
+class RegistradorDePago extends RegistroCredito
+{    
+    
+    /* $debitosTrabajados
+     *  <array>     Detalle con los objetos CuentaCorrienteDebito  saldados
+            array(4) {
+              ["objetos_debito"] => array(2) {  OBJETOS QUE FUERON/SERÁN MODIFICADOS
+                [41861] => object(CuentaCorriente)#338 (12) {
+                  ["_id":"CuentaCorriente":private] => string(5) "41861"
+                  ["_alumnos_id":"CuentaCorriente":private] => string(3) "865"
+                  ["_tipo_operacion":"CuentaCorriente":private] => string(18) "FACTURA_AUTOMATICA"
+                  ["_fecha_operacion":"CuentaCorriente":private] => string(10) "2018-06-01"
+                  ["_monto":"CuentaCorriente":private] => string(5) "-1700"
+                  ["_cobertura":"CuentaCorriente":private] => int(-1700)
+                  ["_motivo":"CuentaCorriente":private] => string(29) "2018, CU3 profesorado nivel 2"
+                  ["_comprobante":"CuentaCorriente":private] => string(8) "no_tiene"
+                  ["_persona_en_caja":"CuentaCorriente":private] => string(18) "proceso_automatico"
+                  ["_observaciones":"CuentaCorriente":private] => string(276) "Sistemas inicializa coberturas. Le asigna $200Sistemas inicializa coberturas. Le asigna $300Sistemas inicializa coberturas. Le asigna $300Sistemas inicializa coberturas. Le asigna $55Sistemas inicializa coberturas. Le asigna $845Sistemas inicializa coberturas. Le asigna $1700"
+                  ["_usuario_nombre":"CuentaCorriente":private] => string(18) "proceso_automatico"
+                  ["_fecha_hora_de_sistema":"CuentaCorriente":private] => string(19) "2018-06-01 13:13:14.123456"
+                }
+                [41545] => object(CuentaCorriente)#344 (12) {
+                  ["_id":"CuentaCorriente":private] => string(5) "41545"
+                  ...
+                }
+              }
+              ["pagos"] => array(2) {
+                [41861] => int(1700)
+                [41545] => int(300)
+              }
+              ["dondeDistribuir"] => array(0) {}
+              ["evscxa"] => array(2) {
+                [334] => array
+                            ctacteid
+                            [41861] => int(1700)
+                            [41545] => int(300)
+                [335] => array
+                            [41545] => int(300)
+              }
+              ["credito_disponible"] => int(0)
+              ["CuentaCorrienteCredito"] => object(CuentaCorriente)#841 (14) {
+                ["_id":"CuentaCorriente":private] => NULL
+                ["_origen":"CuentaCorriente":private] => string(1) "A"
+                ["_alumnos_id":"CuentaCorriente":private] => string(8) "30548405"
+                ["_tipo_operacion":"CuentaCorriente":private] => string(11) "PAGO_MANUAL"
+                ["_fecha_operacion":"CuentaCorriente":private] => string(10) "2022-10-04"
+                ["_monto":"CuentaCorriente":private] => int(9300)
+                ["_cobertura":"CuentaCorriente":private] => int(9200)
+                ["_motivo":"CuentaCorriente":private] => string(106) "Nivel 1, Cuota 8, 2021($4600). Nivel 1, Cuota 9, 2021($4600). Suscripción Plataforma(practicantes)($300)."
+                ["_comprobante_sede":"CuentaCorriente":private] => NULL
+                ["_comprobante":"CuentaCorriente":private] => NULL
+                ["_persona_en_caja":"CuentaCorriente":private] => string(7) "Nashika"
+                ["_observaciones":"CuentaCorriente":private] => string(0) ""
+                ["_usuario_nombre":"CuentaCorriente":private] => NULL
+                ["_fecha_hora_de_sistema":"CuentaCorriente":private] => string(26) "2022-10-05 16:38:32.264000"
+              }
+              ["fueTodoPagado"] => bool(true)
+              ["monto"] => int(9300)
+              ["otros_conceptos"] => array(2) {
+                ["formacion"] => int(100)
+                ["plataforma_practicantes"] => int(300)
+              }
+              ["flag_paga_que"] => 0    no paga nada  ["flag_paga_que"] => 0    no paga nada
+                                   1    paga únicamente curso en año actual
+                                   2    paga más de un curso del año actual
+                                   3    paga cursos de años pasados
+              }
+    */
+    public function registrar()
+    {
+        $this->_calcular();
+        
+        if( !$this->simular ){
+            $this->_impactar();
+        }
+        return $this->debitosTrabajados;
+    }
+    
+    
+    // Obtiene toda la data necesaria como si el pago fuese registrado
+    private function _calcular()
+    {
+        // Deudas previas se envia luego a Ajnia Centros, durante el proceso de comprobante
+        $this->deudasPreviasAlPago = $this->cuentaCorrienteColeccion
+                                            ->getEvscxaPorSaldar( $this->alumnos_id );
+        
+        // Se carga en vars los items que se pagarán y cuanto va a cuenta 'formacion'
+        $this->_otrosConceptos();
+        
+        // 
+        $montoPagaItemsAcademicos = array_sum( array_values_recursive($this->datosDelMov['seleccion_deuda_item']) );
+        $montoPagaACuentaFormacion= $this->otrosConceptosPaga['formacion'];
+        $montoPagaOtrosConceptos = array_sum( array_values_recursive($this->otrosConceptosPaga) )-$montoPagaACuentaFormacion;
+        
+        // Académicos
+        $this->datosDelMov['monto'] = $montoPagaItemsAcademicos+$montoPagaACuentaFormacion;
+        $this->_itemsAcademicos(); 
+        
+        // valores finales
+        // Arma el motivo de todo lo pagado con el crédito.
+        $this->_actualizacionDeMotivo();
+        $this->debitosTrabajados['CuentaCorrienteCredito'] = $this->CuentaCorrienteCredito;
+        $this->datosDelMov['monto'] = $this->datosDelMov['monto']+$montoPagaOtrosConceptos;
+        $this->debitosTrabajados['monto']= $this->datosDelMov['monto'];
+        
+        // Agrego un flag para indicar que estaría pagando cursos distintos, 
+        // o cursos anteriores al año actual.
+        $this->debitosTrabajados['flag_paga_que']= $this->_flagPagaVariosCursos();        
+    }
+    
+    // Hace efectivo el registro del pago en las tablas
+    private function _impactar()
+    {
+        if( !$this->_construirComprobante() ){
+            return FALSE;
+        }
+        
+        // "otros conceptos" generan la deuda automáticamente (ya que no tienen id)
+        foreach( $this->otrosConceptosPaga as $key => $monto ){
+            $this->_generarDeudaOtrosConceptos( ElementosValuadosExtras::getDescripcion([$key]), $monto );
+        }
+        
+        if( !$this->_primeraEscrituraDelPago() ){
+            return FALSE; // error grave. cancela todo.
+        }
+        
+        if( !$this->simular ){
+            $this->cuentaCorrienteColeccion->modificacionactualizacionGeneral( $this->CuentaCorrienteCredito, 'CuentaCorriente' );
+
+            // Acciones post pagos
+            $evento = new PagoRealizado( $this->datosDelMov['alumnos_id'], $this->debitosTrabajados );
+            Eventos::lanzar( $evento );
+        }
+        
+    }
+    
+    // Carga en $this->debitosTrabajados los importes a otros conceptos.
+    private function _otrosConceptos()
+    {
+        // Puede indicarse un monto a cuenta de 'formacion'. 
+        // Si llegase un id de pago incorrecto, se suma a 'formacion'
+        $formacion = ElementosValuadosExtras::defaultFormacion();
+        if( !key_exists($formacion, $this->otrosConceptosPaga) ){
+            $this->otrosConceptosPaga[$formacion]=0; // inicializo el totalizador
+        }
+        
+        // items incorrectos se suman a cuenta 'formacion'
+        $erroneos = array_diff( array_keys($this->otrosConceptosPaga), array_keys($this->otrosConceptos) );
+        foreach( $erroneos as $key ){
+            $this->debitosTrabajados['errores']['conceptos_incorrectos'][$key]=$this->otrosConceptosPaga[$key];
+            $this->otrosConceptosPaga[$formacion]+= $this->otrosConceptosPaga[$key]; // suma monto
+            unset( $this->otrosConceptosPaga[$key] );
+        }
+        $this->debitosTrabajados['otros_conceptos']=$this->otrosConceptosPaga;
+    }
+    
+    private function _itemsAcademicos()
+    {
+        // Pongo los items seleccionados al principio.
+        $listaDeudas = $this->cuentaCorrienteColeccion
+                            ->getRowsPorSaldar( $this->alumnos_id, array_keys($this->evscxaIdsPaga) );
+        // Rows de la tabla cuentas corrientes:
+        $DebitosDondeDistribuir = $this->cuentaCorrienteColeccion
+                                        ->transformarLaListaDeArraysEnListaDeObjetos( $listaDeudas );
+        // array de evscxa_id a que row de cuentas corrientes aplica
+        $aux = arrays_getAlgunasKeysArrays($listaDeudas, ['evscxa_id']);
+        $evscxaIdXCtacteId = array_flip( array_map(function ($x){return $x['evscxa_id'];},$aux ) );
+        
+        $this->CuentaCorrienteCredito = new CuentaCorriente( $this->datosDelMov );
+        $deb = $this->coberturaOperaciones->distribuirUnCredito($this->CuentaCorrienteCredito, 
+                                                                $this->evscxaIdsPaga,
+                                                                $evscxaIdXCtacteId,
+                                                                $DebitosDondeDistribuir,
+                                                                $this->simular
+                                                            );
+        // merge de interacciones con otros conceptos e items académicos
+        $this->debitosTrabajados = $deb + $this->debitosTrabajados;
+    }
+    
+    private function _construirComprobante()
+    {
+        $this->datosDelMov['comprobante_sede'] = USUARIO_SEDE_ID;
+
+        // ¿es necesario generar comprobante?
+        if( $this->datosDelMov['tipo_operacion']=='PAGO_MANUAL'
+            && !isset($this->datosDelMov['comprobante'] ) ){
+
+            $descOtroConcepto=false;
+            if( count($this->otrosConceptosPaga)>0 ){
+
+                // el monto había quedado harcodeado en cero, a espera de confirmación.
+                $this->debitosTrabajados['monto']= $this->datosDelMov['monto'];
+                $descOtroConcepto = $this->datosDelMov['motivo'];
+            }
+            $ComprobanteDesdeAjnaCentros = new ComprobanteDesdeAjnaCentros();
+            $cAC = $ComprobanteDesdeAjnaCentros
+                    ->getComprobanteDesdeAjnaCentros( 
+                            $this->datosDelMov['alumnos_id'], 
+                            $this->datosDelMov['comprobante_sede'], 
+                            $this->datosDelMov['comprobante_envio'], 
+                            $this->datosDelMov['comprobante_mail'], 
+                            $this->listaDeudasPorEvscxa, 
+                            $this->datosDelMov,
+                            $descOtroConcepto
+                        );
+
+            if( $cAC !== false ){
+                $this->datosDelMov['comprobante']= trim($cAC);  
+                // comprobante_sede + comprobante,  debe es unique por constrain.
+                // $this->_MiMensajero->addColeccionMensajes( array( 'ERROR', $mje ) );
+                $comprobanteModificado = array( 'id'=>$this->datosDelMov['id'],'comprobante'=>$this->datosDelMov['comprobante'] );
+                $this->cuentaCorrienteColeccion
+                        ->modificacionactualizacionGeneral( $comprobanteModificado, 'CuentaCorriente' );
+            }else{
+                // error en Ajna Centros
+                $mje='Recibo no generado. Error en AjnaCentros.';
+                $this->debitosTrabajados['errores'][]=$mje;
+                $this->_MiMensajero->addColeccionMensajes( array( 'ERROR', $mje ) );
+                return FALSE;
+            }
+        }
+        return TRUE;
+    }
+    
+        
+    private function _generarDeudaOtrosConceptos( $descripcion, $monto )
+    {
+        $datosDelMovDeuda = $this->datosDelMov;
+        $datosDelMovDeuda['tipo_operacion']='FACTURA_AUTOMATICA';
+        $datosDelMovDeuda['motivo']= 'Costo '.$descripcion;
+        $datosDelMovDeuda['monto']=-$monto;
+        $datosDelMovDeuda['cobertura']=-$monto;
+        $datosDelMovDeuda['comprobante']=null;
+        unset( $datosDelMovDeuda['fecha_hora_de_sistema'] );
+        $this->cuentaCorrienteColeccion->altaGeneral( $datosDelMovDeuda, 'CuentaCorriente' );
+    }
+    
+    // crea la row del pago. 
+    // El motivo se alterará después, cuando se vea, a que se distribuyó el pago.
+    private function _primeraEscrituraDelPago()
+    {
+        $this->datosDelMov['id'] = $this->cuentaCorrienteColeccion
+                                        ->altaGeneral( $this->datosDelMov, 'CuentaCorriente' );
+        if( !$this->datosDelMov['id'] ){
+            return FALSE;
+        }
+        // Auditoría
+        $this->auditoriaColeccion
+                ->registrar( 'alta', 'cuentas_corrientes', $this->datosDelMov['id'], 
+                            arrays_getAlgunasKeys( $this->datosDelMov, $this->_getCamposIndispensables($this->datosDelMov['tipo_operacion']) ) );
+    }
+    
+    private function _getCamposIndispensables( $tipoOperacion )
+    {
+        return $this->cuentaCorrienteColeccion->getCamposIndispensablesSegunTipoOperacion( $tipoOperacion );
+    }
+        
+    // Modificación del motivo en cuentas corrientes con lo que se pago.
+    private function _actualizacionDeMotivo()
+    {
+        $motivo = '';
+        // detalle de 'otros conceptos'
+        if( count($this->debitosTrabajados['objetos_debito'])>0 ){
+            // motivo será la concatenación del motivo deuda + el importe pagado:
+            foreach( $this->debitosTrabajados['objetos_debito'] as $CuentaCorriente ){
+                $motivo.= $CuentaCorriente->getMotivo().
+                        '($'.$this->debitosTrabajados['pagos'][$CuentaCorriente->getId()].'). ';
+            }
+        }
+        // detalle de items académicos
+        if( count($this->debitosTrabajados['otros_conceptos'])>0 ){
+            // motivo será la concatenación del motivo deuda + el importe pagado:
+            foreach( $this->debitosTrabajados['otros_conceptos'] as $key => $monto ){
+                if( $key==ElementosValuadosExtras::defaultFormacion() ) continue;
+                
+                $motivo.= ElementosValuadosExtras::getDescripcion($key)."($monto). ";
+            }
+        }
+        // actualizo $this->CuentaCorrienteCredito
+        $values = $this->CuentaCorrienteCredito->convertirEnArray();
+        $values['motivo']= trim($motivo);
+        $this->CuentaCorrienteCredito = new CuentaCorriente($values);
+    }
+    
+    
+    private function _registrarPagoMigracion( $datosDelMov, $distribuirEnDebitos=false )
+    {
+        $alumnos_id = $datosDelMov['alumnos_id'];
+        
+        // 1° Registro del movimiento.       
+            $datosDelMov['id'] = $this->cuentaCorrienteColeccion->altaGeneral( $datosDelMov, 'CuentaCorriente' );
+            if( !$datosDelMov['id'] ){
+                return $this->_returnErrores( 'Error en escritura de nuevo pago en CuentaCorriente.' );
+            }
+            // Auditoría
+            $this->auditoriaColeccion
+                    ->registrar( 'alta', 'cuentas_corrientes', $datosDelMov['id'], 
+                                arrays_getAlgunasKeys( $datosDelMov, $this->_getCamposIndispensables($datosDelMov['tipo_operacion']) ) );
+        
+        if( $distribuirEnDebitos ){
+            // 2° Distribución de los montos. Salda deudas, o queda a cuenta.
+            $listaDeudas = 
+                    $this->cuentaCorrienteColeccion->getRowsPorSaldar( $alumnos_id );
+            $DebitosDondeDistribuir = $this->cuentaCorrienteColeccion->transformarLaListaDeArraysEnListaDeObjetos( $listaDeudas );
+            
+            $debitosTrabajados = $this->_actualizacionDeMotivo( $datosDelMov, $evscxaPaga=null, $evscxaIdXCtacteId=null, $DebitosDondeDistribuir, $simularPago=false );
+            return $debitosTrabajados;
+        }
+        return true;
+    }
+    
+    
+    /*
+     * Flag que ayuda a colocar un alert para el usuario.
+     * Para lograr el dato, analiza el string de motivo. (lo cual es acoplativo, 
+     * pero por ahora lo dejo así, lo correcto sería obtener el dato desde el curso en cuestion)
+     * OUTPUT
+     * 0    no paga nada
+     * 1    paga únicamente curso en año actual
+     * 2    paga más de un curso del año actual
+     * 3    paga cursos de años pasados
+     */
+    private function _flagPagaVariosCursos()
+    {
+        $debitosTrabajados = $this->debitosTrabajados;
+        if( !$debitosTrabajados && count($debitosTrabajados)==0 ){
+            return false;
+        }
+        // $dataPagos = $this->_ElementoValuadoSedeCursoxanioColeccion->getCursosFromEvscxa( $evscxaids );
+        $anios = [];
+        $cursos = [];
+        foreach( $debitosTrabajados['pagos'] as $ctaCteId => $monto ){
+            $motivo = $debitosTrabajados['objetos_debito'][$ctaCteId]->getMotivo();
+            $curso = trim(substr( $motivo, 0, strpos($motivo,',')) );
+            $stringDesdeLaPrimeraComa = substr( $motivo, strpos($motivo,',')+1);
+            $stringDesdeLaSegundaComa = substr( $stringDesdeLaPrimeraComa, strpos($stringDesdeLaPrimeraComa,',')+1);
+            $stringAnio = trim(substr( $stringDesdeLaSegundaComa,1,4));
+            $anio = ( strlen($stringAnio)==4 && is_numeric($stringAnio) )? $stringAnio :
+                        substr( $debitosTrabajados['objetos_debito'][$ctaCteId]->getFechaOperacion(), 0, 4 ); 
+            if( !in_array($anio,$anios) ){
+                $anios[]=$anio;
+            }
+            if( !in_array($curso,$cursos) ){
+                $cursos[]=$curso;
+            }
+        }
+        if( count($anios)==0 ){
+            return false; // no hay selección. quizás fue 'otros conceptos'
+        }
+        if( count($anios)>1 || $anios[0] < date('Y') ){
+            $r = 3;
+        }elseif( count($cursos)>1 && count($anios)==1 && $anios[0]==date('Y') ){
+            $r = 2;
+        }elseif(count($cursos)==1 && count($anios)==1 && $anios[0]==date('Y') ){
+            $r = 1;
+        }elseif( count($cursos)>0 || count($anios)>0 ){
+            $r = FALSE; // no debiera salir por aquí
+        }else{
+            $r = 0;
+        }
+        return $r;
+    }
+    
+    
+}

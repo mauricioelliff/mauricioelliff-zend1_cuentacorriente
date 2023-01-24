@@ -1,0 +1,38 @@
+<?php
+
+// textos relativos a este proyecto    
+
+$textos = 
+    array(
+        
+        'FACTURA_AUTOMATICA'        => 'Item a pagar', 
+        'NOTA_CREDITO_MANUAL'       => 'Nota Crédito',
+        'NOTA_CREDITO_AUTOMATICO'   => 'Nota Crédito automática',
+        'DEBITO_MANUAL'             => 'Nota Débito',
+        'DEBITO_AUTOMATICO'         => 'Nota Débito automática',
+        'PAGO_MANUAL'               => 'Pago',
+        'PAGO_MIGRACION'            => 'Pago desde excel',
+
+        // mensajes ante la no viabilidad de registrar un movimiento
+        'ERROR_MOVIMIENTO_NO_PERMITIDO'         => 'Movimiento no permitido',
+        'FALTA_CAMPO_INDISPENSABLE'             => 'Falta un campo/dato indispensable para realizar el movimiento',
+        'TIPO_DE_OPERACION_NO_IDENTIFICADA'     => 'Tipo de operación no específicado',
+        'MOTIVO_DE_OPERACION_NO_IDENTIFICADO'   => 'Motivo de operación no específicado',
+        'FECHA_DE_OPERACION_NO_VALIDA'          => 'Fecha de operación no válida',
+        'SIN_MONTO'                             => 'Sin monto',
+        'FALTAN_DATOS_PARA_VERIFICAR_UNIQUE'    => 'Faltan datos para determinar si el movimiento es el unico en la tabla',
+        'MOVIMIENTO_YA_REGISTRADO'              => 'Movimiento ya registrado anteriormente',
+        
+        
+        'DEBITO'       => 'DEBITO',
+        'CREDITO'      => 'CREDITO',
+        'DEBITO_title' => 'Débito: El alumno deberá abonar este importe',
+        'CREDITO_title'=> 'Crédito: Al alumno se le descontará este importe',
+        
+        'CORRECCION'    => 'Corrección',
+        'MODIFICACION'  => 'Modificación',
+        'COBRO_EXTRA'   => 'Cobro extra',
+        'PAGADO_RECIBO_PERDIDO' => 'Ya está pago, se perdió recibo',
+        
+        
+    );

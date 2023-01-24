@@ -1,0 +1,252 @@
+<?php
+
+/*
+ * Al comenzar a trabajar en Cuentas Corrientes con el concepto de "cobertura"
+ * debe calcularse el valor de cobertura para cada item 
+ * y crear las relaciones entre CtasCtes y ElementosValuados.
+ * 
+ * --- DEBITO / CREDITO --------------------------------------------------------
+ * La visión de que es un crédito o débito, es desde la visión del alumno.
+ * Así un pago del alumno, será un ingreso de dinero, o crédito.
+ * Y un egreso de dinero o algo que genere deuda en el alumno, será un débito.
+ * -----------------------------------------------------------------------------
+ * 
+ */
+require_once 'cuentacorriente/logicalmodels/CoberturaOperaciones.php';
+require_once 'cuentacorriente/logicalmodels/FuncionesSobreEVAs.php';
+
+require_once 'cuentacorriente/models/CuentaCorrienteColeccion.php';
+require_once 'cuentacorriente/models/CuentaCorrienteElementoValuadoColeccion.php';
+require_once 'cuentacorriente/models/ViewsContableColeccion.php';
+require_once 'cuentacorriente/logicalmodels/MotivoCuentaCorriente.php';
+
+require_once 'admin/models/SedeCursoxanioAlumnoColeccion.php';
+
+require_once 'default/models/Query.php';
+
+/*
+ * 
+ *
+ */
+class InicializacionCobertura 
+{
+    private $_sedeSolicitada;
+    private $_anioSolicitado;
+    
+    protected $anios = array( 2010,2011,2012,2013,2014,2015,2016,2017,2018,2019 );
+    protected $cuotas = array( 'MAT','CU1','CU2','CU3','CU4','CU5','CU6','CU7','CU8','CU9','DEX' );
+    
+    protected $cuentaCorrienteColeccion;
+    protected $relacionColeccion;
+    protected $sedeCursoxanioAlumnoColeccion;
+    protected $funcionesSobreEVAs;
+    protected $coberturaOperaciones;
+    protected $viewContableColeccion;
+    
+    // resultados
+    private $_ctaCteIdConErrores    = array();
+    //private $_alumnosProcesados     = array();
+    
+    public function __construct() 
+    {
+        $this->cuentaCorrienteColeccion = new CuentaCorrienteColeccion();
+        $this->relacionColeccion        = new CuentaCorrienteElementoValuadoColeccion();
+        $this->motivoCuentaCorriente    = new MotivoCuentaCorriente();
+        $this->viewContableColeccion    = new ViewsContableColeccion();        
+        $this->sedeCursoxanioAlumnoColeccion = new SedeCursoxanioAlumnoColeccion();
+        
+        ini_set('max_execution_time', 1800); // 1800 segundos 
+        // y como he visto que no me ha funcionado 1 vez en test, agrego la ste. linea:
+        set_time_limit ( 1800 ); // 1800 segundos . Para tiempo ilimitado: set_time_limit (0);
+    }
+    
+    
+    public function resetSedeAnio( $sedes_id=null, $anio=null )
+    {
+        if( $sedes_id == null || $anio==null ){
+            die('no hay parametro sede o anio');
+        }
+        $this->_sedeSolicitada = $sedes_id;
+        
+        $alumnosIdDeLaSedeAnio = $this->sedeCursoxanioAlumnoColeccion
+                                    ->getAlumnosDeLaSedeAnio( $sedes_id, $anio );
+ver($alumnosIdDeLaSedeAnio,'$alumnosIdDeLaSedeAnio');
+        foreach( $alumnosIdDeLaSedeAnio as $alumnoId ){
+            $this->resetAlumnoAnio( $alumnoId, $anio );
+        }
+    }
+    
+    // Quita todas las coberturas y asignaciones para este alumno
+    public function resetAlumnoAnio( $alumnoId, $anio )
+    {
+        // Reset cobertura
+        $query = new Query();
+        $sql = 'UPDATE yoga_cuentas_corrientes '
+                . ' SET cobertura = 0'
+                . ' WHERE alumnos_id = "'.$alumnoId.'" '
+                . ' AND SUBSTR( fecha_operacion, 1, 4 ) = "'.$anio.'"';
+        $query->ejecutarCualquierSql( $sql );
+      
+        // Elimino las asignaciones en la tabla de relacion, aqui no importa el año.
+        // pues lo que hace es borrar todo aquello que no tiene nada asignado.
+        $sql =    ' DELETE FROM yoga_cuentascorrientes_elementosvaluados'
+                . ' WHERE cuentas_corrientes_id IN ( '
+                .   ' SELECT * FROM ( '
+                .       ' SELECT id FROM yoga_cuentas_corrientes '
+                .       ' WHERE alumnos_id = "'.$alumnoId.'" '
+                .       ' AND cobertura = 0 '
+                .   ' ) AS p'
+                . ') '
+                ;
+        $query->ejecutarCualquierSql( $sql );
+    }
+    
+    public function inicializadorDatosViejosHastaHoy( $sedes_id, $alumno_id=null )
+    {
+        // 1° Busca correspondencia exacta entre débitos y créditos. Prioriza el año del loop.
+        // Loop por año, y luego hará loop por alumno.
+        foreach( $this->anios as $anio ){
+            $this->inicializacionParesCorrespondientes( $sedes_id, $anio, $alumno_id );
+        }
+        
+        // 2° Distribuye créditos libres entre débitos pendientes.
+        /*
+        //El ste parrafo lo he comentado, pues intenta hacer la compensación entre
+        //débitos y créditos, antes de que estén cargados todos los débitos,
+        //entonces, las relaciones directas se rompen, y un crédito de 2018
+        //pude colocarse a un débito de 2017, pues el de 2018 aun no llego.
+        // Hará loop por alumno.
+        $anioDelUltimoCurso = date('Y'); // Lo necesita para buscar los alumnos de la cursada
+        $this->inicializacionParesLibres( $anioDelUltimoCurso, $alumno_id );
+         * 
+         */
+    }
+
+    public function inicializadorAnioRequerido( $sedes_id, $anio, $alumno_id=null )
+    {
+        // 1° Busca correspondencia exacta entre débitos y créditos. Prioriza el año del loop.
+        $this->inicializacionParesCorrespondientes( $sedes_id, $anio, $alumno_id );
+        
+        // 2° Distribuye créditos libres entre débitos pendientes.
+        // Hará loop por alumno.
+        $anioDelUltimoCurso = date('Y'); // Lo necesita para buscar los alumnos de la cursada
+        $this->inicializacionParesLibres( $anioDelUltimoCurso, $alumno_id );
+    }
+    
+    
+    /*
+     * INICIALIZACION COBERTURA
+     * 
+     * Recorre los items de la cuenta corriente, que claramente detecta el curso a que refiere.
+     * INPUT
+     * $sedes_id
+     * $anio 
+     * $alumnos_id  Opcional, por si solo quiero procesar determinados alumnos
+     * 
+     * Carga las coberturas y las relaciones entre cuenta corriente y los EVA.
+     * ( si el alumno ya tiene los datos inicializados, 
+     * y no se detecta pagos que puedan distribuirse en deudas, no habra cambios )
+     * 
+     */
+    public function inicializacionParesCorrespondientes( $sedes_id, $anio, $alumnosId=null )
+    {
+        $this->_sedeSolicitada = $sedes_id;
+        $this->_anioSolicitado = $anio;
+        $this->funcionesSobreEVAs = new FuncionesSobreEVAs( $sedes_id );        
+
+        $this->coberturaOperaciones     = new CoberturaOperaciones(
+                                                    $this->_sedeSolicitada,
+                                                    $this->cuentaCorrienteColeccion, 
+                                                    $this->funcionesSobreEVAs, 
+                                                    $this->relacionColeccion 
+                                                );        
+      
+        $alumnosAProcesar = $this->_getAlumnosAProcesar( $anio, $alumnosId );
+        
+        foreach( $alumnosAProcesar as $alumnos_id ){
+            
+            $this->_trabajarCoberturasDelAnioIndicado( $alumnos_id );
+            
+        }
+    }
+    
+    /*
+     * Distribuye créditos libres entre débitos pendientes.
+     */
+    public function inicializacionParesLibres( $anioActualDelAlumno, $alumnosId=null )
+    {
+        $alumnosAProcesar = $this->_getAlumnosAProcesar( $anioActualDelAlumno, $alumnosId );
+        
+        // Distribuye créditos ya sin restringir el año en cuestión
+        foreach( $alumnosAProcesar as $alumnos_id ){
+            
+            $this->coberturaOperaciones->distribuirCreditos( $alumnos_id, null, $impactar=true  );
+            
+            
+            // CREA además, el alta en la tabla de relación.
+            $this->coberturaOperaciones->crearRelacionesDebitosSinCreditos( $alumnos_id );
+            
+        }
+    }
+    
+    /*
+     * Dada la tabla cuentas_corrientes, sin datos de cobertura:
+     * 
+     * Calculo de cobertura y relacion con EVs.
+     * 
+     * Si este proceso se lanzase una vez tras otra, no haría nada,
+     * puesto que una vez que se acabaron los pagos con montos disponibles,
+     * ya no encuentra más nada por hacer.
+     * 
+     * INPUT
+     * $alumnos_id  <int>   Un alumno
+     * 
+     */
+    private function _trabajarCoberturasDelAnioIndicado( $alumnos_id )
+    {
+        
+        // Los movimientos de la CtaCte refieren al año en proceso.
+        
+        // 1° Créditos a los que puede encontrarse el débito correspondiente, 
+        //      deducido a partir de la descripción del motivo ';
+        $this->coberturaOperaciones
+            ->asignaCreditosConCoberturaPendienteASusDebitosRespectivos( $alumnos_id, $this->_anioSolicitado );
+      
+        // 2° Distribuye créditos con cobertura disponible 
+        //      a items EXCLUSIVAMENTE de ese año. 
+        $this->coberturaOperaciones->distribuirCreditos( $alumnos_id, $this->_anioSolicitado, $impactar=true  );
+                  
+    }
+    
+    
+    
+    private function _getAlumnosAProcesar( $anio, $alumnos_id=null )
+    {
+        // Determino los alumnos a procesar
+        $alumnosIdEnScxa = $this->sedeCursoxanioAlumnoColeccion
+                                ->getAlumnosDeLaSedeAnio( $this->_sedeSolicitada, $anio );
+        if( $alumnos_id ){
+            $alumnos_id = ( is_array($alumnos_id) )? $alumnos_id : array($alumnos_id);
+            $alumnosAProcesar = array_intersect( $alumnos_id, $alumnosIdEnScxa );
+        }else{
+            $alumnosAProcesar = $alumnosIdEnScxa;
+        }
+        return $alumnosAProcesar;
+    }
+    
+    
+    // log
+    //$this->_alumnosProcesados[ $this->_anioSolicitado ][ $this->_sedeSolicitada ][] = $alumnos_id;    
+    private function _resultados()
+    {
+        return array(
+                    //'alumnos_procesados'    => $this->_alumnosProcesados,
+                    'cuenta_corriente_ids_con_errores'  => $this->_ctaCteIdConErrores,
+                    );
+    }
+    
+    
+    
+}
+
+

@@ -1,0 +1,79 @@
+<?php
+/*
+ * La tabla de relación indica
+ * cada item de cuentas corrientes, a que evscxa corresponde.
+ * Lo que permite un control a cada alumno de que se le cobro o pago
+ * en cada item de las cuentas corrientes.
+ * Comunmente cada item evscxa tendrá una row donde se genero la deuda,
+ * y una row donde se efectuo el pago.
+ * 
+ * 
+ */
+
+require_once 'extensiones/generales/Coleccion.php';
+require_once 'cuentacorriente/models/CuentaCorrienteElementoValuado.php';
+
+/*
+ * 
+ *
+ */
+class CuentaCorrienteElementoValuadoColeccion extends Coleccion
+{
+
+    protected $_name    = 'yoga_cuentascorrientes_elementosvaluados';
+    protected $_id      = 'yoga_cuentascorrientes_elementosvaluados_id';
+
+    protected $_class_origen = 'CuentaCorrienteElementoValuado';
+       
+        
+    public function init()
+    {
+        parent::init();  
+    }
+    
+    
+    /*
+     * Modifica los valores de la row pasada, con el objeto recibido
+     * Invocada desde la fn altaGeneral en Coleccion.php
+     */
+    public function actualizarRow( $row, $objeto )
+    {
+        if( $objeto->getId() ){
+            $row->id = $objeto->getId();   
+        }
+        $row->cuentas_corrientes_id         = $objeto->getCuentasCorrientesId();
+        $row->elementosvaluados_sedes_cursosxanio_id  
+                                            = $objeto->getElementosValuadosSedesCursosxanioId();
+        $row->pago_asignado                = $objeto->getMontoAsignado();
+        
+        $row->save();
+        
+        return $row->id;
+    }
+    
+    
+    /*
+     * Altas y actualización 
+     * generada por un movimiento en Cuentas Corrientes.
+     */
+    public function actualizaRelacion( $CuentaCorriente, $evscxaId, $montoAhora )
+    {
+        $relValues = array( 'cuentas_corrientes_id'                 => $CuentaCorriente->getId(),
+                            'elementosvaluados_sedes_cursosxanio_id'=> $evscxaId,
+                            );        
+        $existe = $this->obtenerGeneral( $relValues, 'id', 'CuentaCorrienteElementoValuado', false, true );
+        if( !$existe ){
+            // el monto asignado, es un valor muy auxiliar, 
+            // sirve para que la sacar listados de pagos, se pueda saber 
+            // cuanto monto destino a pagar cada cosa.
+            // Por lo que en débitos, para no confundir, dejaré el valor NULL.
+            $relValues['pago_asignado']= ($CuentaCorriente->getMonto()<0)? null : $montoAhora; 
+            $this->altaGeneral($relValues, 'CuentaCorrienteElementoValuado');
+        }else{
+            //$relValues = $existe->convertirEnArray();
+            //$relValues['pago_asignado']+= $montoAhora; 
+            //$this->modificacionactualizacionGeneral($relValues, 'CuentaCorrienteElementoValuado');
+        }
+    }
+
+}

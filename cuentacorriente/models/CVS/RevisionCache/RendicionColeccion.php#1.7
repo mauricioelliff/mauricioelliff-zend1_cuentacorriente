@@ -1,0 +1,317 @@
+<?php
+
+/*
+ * 
+ */
+
+require_once 'ColeccionParaEsteProyecto.php';
+require_once 'cuentacorriente/models/Rendicion.php';
+require_once 'default/models/Query.php';
+require_once 'misFunciones.php';
+
+class RendicionColeccion extends ColeccionParaEsteProyecto
+{
+    protected $_name    = 'yoga_rendiciones';
+    protected $_id      = 'yoga_rendiciones_id';
+
+    private $_class_origen = 'Rendicion';
+    
+    protected $grupo_elementosvaluados = 
+                [ 
+                    'CU'    => 'Cuotas', 
+                    'MAT'   => 'Matrículas', 
+                    'EX'    => 'Examenes', 
+                    'PLA'   => 'Plataforma (meses sin formación)' 
+                ];
+    
+    public function grupoElementosvaluadosDefault()
+    {
+        return 'CU';
+    }
+    
+    public function actualizarRow( $row, $objeto )
+    {
+        if( $objeto->getId() ){
+            $row->id = $objeto->getId();   
+        }
+        $row->sedes_id                          = $objeto->getSedesId();
+        $row->fecha_desde                       = $objeto->getFechaDesde();
+        $row->fecha_hasta                       = $objeto->getFechaHasta();
+        $row->total_matriculas                  = $objeto->getTotalMatriculas();
+        $row->total_cuotas                      = $objeto->getTotalCuotas();
+        $row->total_examenes                    = $objeto->getTotalExamenes();
+        $row->total_plataformas                 = $objeto->getTotalPlataformas();
+        $row->fue_rendida                       = $objeto->fueRendida();
+        $row->fecha_hora_de_creacion            = $objeto->getFechaHoraDeCreacion();
+        $row->fecha_hora_de_rendicion_a_central = $objeto->getFechaHoraDeRendicionACentral();
+        
+        //$row->save();        
+        $idAlta = $this->tryInsert( $row, $objeto );
+        return $idAlta;
+    }     
+    
+    
+    public function rendir( Rendicion $Rendicion )
+    {
+        if( !$this->_checksPrevioGuardarRendicion( $Rendicion ) ){
+            return false;
+        }
+        $this->setTotales($Rendicion);
+        
+        $Rendicion->setFechaHasta( $Rendicion->getFechaHasta().' 23:59:59.999999' );
+        return $this->altaGeneral( $Rendicion, $this->_class_origen );
+    }
+    
+    
+    private function _checksPrevioGuardarRendicion( Rendicion $RendicionEvaluando )
+    {
+        $RendicionUltima = $this->getUltimaRendicion( $RendicionEvaluando->getSedesId() );
+        $fechaUltima = ($RendicionUltima)? substr( $RendicionUltima->getFechaHasta(), 0, 10 ) : null;
+        
+        // CHECKS
+        if( !$this->_fechasValidas($RendicionEvaluando) ){
+            return false;
+        } 
+        // Si hay última rendición, su fecha_hasta+1 será igual a la fecha_desde llegada.
+        if( $RendicionUltima 
+            && date('Y-m-d',sumaDia(substr($fechaUltima,0,10),1)) != substr($RendicionEvaluando->getFechaDesde(),0,10) ){
+            $this->addColeccionMensajes([
+                    'ERROR',
+                    'La fecha "desde" solicitada: '.fechaEnFormatoDDMMYYYY(substr($RendicionEvaluando->getFechaDesde(),0,10),'/').',',
+                    ' no es contigua la fecha de cierre ',
+                    'de la última rendición: '.
+                        fechaEnFormatoDDMMYYYY(substr($RendicionUltima->getFechaHasta(),0,10),'/').'.'
+                    ]);
+            return false;
+        }
+        // No deberá solaparse a otra rendicion
+        if( $this->getIntersecciones( $RendicionEvaluando ) ){
+            $this->addColeccionMensajes([
+                    'ERROR_QUERY_RESULTADO_GENERAL',
+                    'las fechas se solapan a otra rendición' ]);
+            return false;
+        }
+        return true;
+    }
+    
+    private function _fechasValidas( Rendicion $RendicionEvaluando )
+    {
+        if( !validateDate($RendicionEvaluando->getFechaDesde()) ){
+            $this->addColeccionMensajes(['error', 'La fecha "desde" parece ser errónea',$RendicionEvaluando->getFechaDesde()]);
+            return false;
+        }
+        if( !validateDate($RendicionEvaluando->getFechaHasta()) ){
+            $this->addColeccionMensajes(['error', 'La fecha "hasta" parece ser errónea',$RendicionEvaluando->getFechaHasta()]);
+            return false;
+        }
+        if( $RendicionEvaluando->getFechaDesde() > $RendicionEvaluando->getFechaHasta() ){
+            $this->addColeccionMensajes(['error', 'La fecha "hasta" es menor que "desde"']);
+            return false;
+        }
+        if( $RendicionEvaluando->getFechaDesde() > date('Y-m-d') 
+            || substr($RendicionEvaluando->getFechaHasta(),0,10) > date('Y-m-d') ){
+            $this->addColeccionMensajes(['error', 'Las fechas no pueden ser mayores a hoy']);
+            return false;
+        }
+        return true;
+    }
+    
+
+                
+    
+    public function anularLasPosteriores( Rendicion $Rendicion )
+    {
+        $buscar = [ 'sedes_id' => $Rendicion->getSedesId(), 
+                    'fecha_hasta >= "'.$Rendicion->getFechaHasta().'" '  ];
+        $this->eliminarGeneral($buscar);
+    }
+    
+    public function rendicionesPosteriores( Rendicion $Rendicion )
+    {
+        $buscar = [ 'sedes_id' => $Rendicion->getSedesId(), 
+                    'fecha_hasta >= "'.$Rendicion->getFechaHasta().'" '  ];
+        return $this->obtenerGeneral( $buscar, 'id', $this->_class_origen );
+    }
+    
+    /* 
+     * No debe haber fechas que solapen períodos.
+     * OUTPUT
+     * FALSE o <array>
+     */
+    public function getIntersecciones( Rendicion $Rendicion )
+    {
+        $buscar = [ 'sedes_id'  => $Rendicion->getSedesId(),
+                    'fecha_desde BETWEEN "'.$Rendicion->getFechaDesde().'" AND "$fechaHasta" OR '.
+                    'fecha_hasta BETWEEN "'.$Rendicion->getFechaHasta().'" AND "$fechaHasta" '
+                    ];
+        return $this->obtenerGeneral( $buscar, 'id', $this->_class_origen );
+    }
+        
+    
+    public function getUltimasRendiciones( $sedes_id, $cuantas=7 )
+    {
+        $sql =  'SELECT * FROM ( '
+                . 'SELECT * FROM yoga_rendiciones '
+                . "WHERE sedes_id=$sedes_id "
+                . 'ORDER BY fecha_hasta DESC '
+                . "LIMIT $cuantas"
+                . ') tmp ORDER BY fecha_hasta DESC ';
+        $Query = new Query();
+        $resu = $Query->ejecutarQuery($sql);
+        if( !$resu || count($resu)==0 ){
+            return false;
+        }
+        $rendiciones = [];
+        foreach( $resu as $r ){
+            $rendiciones[]=new Rendicion($r);
+        }
+        return $rendiciones;
+    }
+        
+    
+    public function getUltimaRendicion( $sedes_id )
+    {
+        $sql = 'SELECT * FROM yoga_rendiciones '
+                . "WHERE sedes_id=$sedes_id "
+                . " AND fecha_hasta = ( SELECT MAX(fecha_hasta) FROM yoga_rendiciones WHERE sedes_id=$sedes_id )";
+        $Query = new Query();
+        $r = $Query->ejecutarQuery($sql);
+        if( !$r || count($r)==0 ){
+            return false;
+        }
+        return new Rendicion($r[0]);
+    }
+    
+    
+    public function getPagos( Rendicion $Rendicion, $grupoEV )
+    {
+        if( !$this->_fechasValidas( $Rendicion ) ){
+            return [];
+        }
+        $select = $this->selectParaObtenerLosPagosRendidos( $Rendicion, $grupoEV );
+        if( $grupoEV ){
+            $whereParaElGrupoDeEV = $this->_getCondicionesDeGrupoParaQuery( $grupoEV );
+            $select->where( $whereParaElGrupoDeEV );
+        }
+        //print($select);die('TODO MAU 77');
+        $filas =  $this->fetchAll( $select )->toArray();
+        // ver($filas,'$filas');
+        return $filas;
+    }
+            
+    /*
+     * OUTPUT
+     * <array asociativo>
+     */
+    public function calcularTotales( Rendicion $Rendicion )
+    {
+        $select = $this->selectParaObtenerLosPagosRendidos( $Rendicion );
+        $select->reset( Zend_Db_Select::COLUMNS )   // quita elimina el from original
+                ->from( null, // no agrego ninguna tabla. Quedan las que estaban.
+                        [   'grupoev'=> $this->getSqlIdentificarGrupoDeLaRow(), // campos de salida
+                            'suma'      => 'SUM(ev.pago_asignado)' ] ); //'SUM(ctas.monto)' ] );
+        $select->group('grupoev');
+        //print( $select );
+        $filasArray = $this->fetchAll($select)->toArray();
+        if( !$filasArray || count($filasArray)==0 ){
+            return false;
+        }
+        $r = [];
+        $grupos = array_keys( $this->_getCondicionesDeGrupoParaQuery() );
+        foreach( $filasArray as $values ){
+            if( !in_array($values['grupoev'], $grupos) ){ 
+                continue;
+            }
+            $r[ $values['grupoev'] ] = $values['suma'];
+        }
+        // pongo en cero los valores que no llegaron
+        foreach( $grupos as $grupo ){
+            if( !key_exists($grupo, $r) ){
+                $r[$grupo]=0;
+            }
+        }
+        return $r;
+    }
+    
+    public function setTotales( Rendicion $Rendicion )
+    {
+        $totales = $this->calcularTotales( $Rendicion );
+        if( $totales ){
+            $Rendicion->setTotalMatriculas( $totales['MAT'] );
+            $Rendicion->setTotalCuotas( $totales['CU'] );
+            $Rendicion->setTotalExamenes( $totales['EX'] );
+            $Rendicion->setTotalPlataformas( $totales['PLA'] );
+        }
+        return $Rendicion;
+    }
+    
+    /* $fechaDesde y $fechaHasta son opcionales
+     * Por default, toma las fechas de la $Rendicion
+     */
+    public function selectParaObtenerLosPagosRendidos( Rendicion $Rendicion, $grupoEV=null, $fechaDesde=null, $fechaHasta=null )
+    {
+        $f1 = ($fechaDesde)? $fechaDesde : $Rendicion->getFechaDesde();
+        $f2 = ($fechaHasta)? $fechaHasta : $Rendicion->getFechaHasta().' 23:59:59.999999999';
+        
+        $select = $this->select();
+        $select ->setIntegrityCheck(false)  //es importante colocar esto
+                ->from( array( 'ctas'   => 'yoga_cuentas_corrientes' ),
+                        '*' )
+                ->joinInner( 
+                    array( 'ev' => 'yoga_cuentascorrientes_elementosvaluados' ),
+                    'ctas.id = ev.cuentas_corrientes_id',      //union
+                    ['pago_asignado'] ) // campos de salida
+                ->joinInner( 
+                    array( 'viewev' => 'view_elementosvaluados_por_sedes_cursos_y_planes' ),
+                    'ev.elementosvaluados_sedes_cursosxanio_id = viewev.evscxa_id',      //union
+                    ['grupoev'=> $this->getSqlIdentificarGrupoDeLaRow()] ) // campos de salida
+                ->joinInner( 
+                    array( 'view' => 'view_alumnos_por_sedes_cursos_y_planes' ),
+                    'view.alumnos_id = ctas.alumnos_id '.
+                    ' AND view.sedes_cursosxanio_id = viewev.sedes_cursosxanio_id ',
+                    //    ' AND view.sedes_id ='.$Rendicion->getSedesId().
+                    //    ' AND view.nombre_computacional="'.$nombreComputacionalSegunEV.'" '.
+                    //    ' AND view.anio = "'.substr($Rendicion->getFechaHasta(),0,4).'"',      //union
+                    ['nombres','apellido','nombre_espiritual'] ) // campos de salida
+                ;
+        $wheres = [ 'ctas.tipo_operacion LIKE "PAGO%"',
+                    'ctas.fecha_hora_de_sistema BETWEEN "'.$f1.'" AND "'.$f2.'" ',
+                    'ev.elementosvaluados_sedes_cursosxanio_id IS NOT NULL', // si no tiene, no es de la formación. Ej. taller mantras
+                    'view.sedes_id = '.$Rendicion->getSedesId(),
+                    //$this->_getCondicionesDeGrupoParaQuery( $params['grupoEV'] )
+                    ];
+        $select->where( $this->getWhereEnUnaLinea($wheres) );
+        //print($select);die();
+        return $select;        
+    }
+    
+    
+    private function _getCondicionesDeGrupoParaQuery( $cual=null )
+    {
+        // 'view'   => 'view_alumnos_por_sedes_cursos_y_planes'
+        // 'viewev' => 'view_elementosvaluados_por_sedes_cursos_y_planes'
+        $condicionesPorGrupo = 
+            [ 
+                'CU'    => 'view.nombre_computacional = "profesorado" AND viewev.ev_abreviatura LIKE "CU%" ', 
+                'MAT'   => 'view.nombre_computacional = "profesorado" AND viewev.ev_abreviatura = "MAT" ', 
+                'EX'    => 'view.nombre_computacional = "profesorado" AND viewev.ev_abreviatura LIKE "%EX%" ', 
+                'PLA'   => 'view.nombre_computacional = "servicio" AND view.clasificador_valor = "1" ' 
+            ];
+        if( $cual ){
+            return $condicionesPorGrupo[ $cual ];
+        }else{
+            return $condicionesPorGrupo;
+        }
+    }
+    
+    private function getSqlIdentificarGrupoDeLaRow()
+    {
+        $condiciones = $this->_getCondicionesDeGrupoParaQuery();
+        $field = '';
+        foreach( $condiciones as $grupo => $condicion ){
+            $field.= 'IF( '.$condicion.", '$grupo', ";
+        }
+        $field.= 'NULL '.str_repeat( ')', count($condiciones) );
+        return $field;
+    }
+}

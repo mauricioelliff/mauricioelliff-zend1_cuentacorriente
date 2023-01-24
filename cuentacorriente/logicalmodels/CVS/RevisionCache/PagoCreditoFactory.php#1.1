@@ -1,0 +1,25 @@
+<?php
+/**
+ * 
+ * INPUT 
+ * 
+ */
+
+require_once 'cuentacorriente/logicalmodels/RegistradorDePago.php';
+
+class PagoCreditoFactory
+{
+    public static function getRegistrador( array $datosDelMov, bool $simular=false )
+    {
+        if( $datosDelMov['tipo_operacion']=='PAGO_MANUAL' ){
+            return new RegistradorDePago( $datosDelMov, $simular );
+        }elseif( $datosDelMov['tipo_operacion']=='NOTA_CREDITO_MANUAL' ){
+            return new RegistradorDeNotaDeCreditoManual( $datosDelMov, $simular );
+        }elseif( $datosDelMov['tipo_operacion']=='NOTA_CREDITO_AUTOMATICO' ){
+            return new RegistradorDeNotaDeCreditoAutomatica( $datosDelMov, $simular );
+        }else{
+            // ERROR
+        }
+        return false;
+    }
+}

@@ -1,0 +1,158 @@
+<?php
+/**
+ * Objetos que por alguna razón son rechazados al intentar registrarse,
+ * caen en está bolsa.
+ */
+
+class CuentaCorrienteErroneo
+{
+    private $_id;       
+    private $_origen;
+    private $_alumnos_id;
+    private $_tipo_operacion;       // FM:factura manual, FA:factura automatica, CM:cobro manual, CA:cobro automatico, NC:Nota credito 
+    private $_fecha_operacion;      // es la fecha a que corresponde el movimiento de dinero
+    private $_monto;
+    private $_cobertura;            // Indicador de cuanto se ha saldado este item. Utiliza un valor de igual signo que el monto.
+    private $_motivo;               // EV (abreviatura) directamente relacionado, o CURSO, RETIRO, A CUENTA, etc
+    private $_comprobante_sede;
+    private $_comprobante;
+    private $_persona_en_caja;      // quien cobro o manipulo dinero. String.
+    private $_observaciones;
+    private $_usuario_nombre;       // Es el operador logueado, en principio esta dentro de las variables de session pasadas por el sistema Admin
+    private $_fecha_hora_de_sistema;// momento en que se crea la row. Fines de auditoria
+    private $_fecha_hora_de_sistema_row_referente;  // podría ser el pago al que está duplicando
+    private $_error;
+
+    public function __construct( array $valores )
+    {
+        $this->_id                      = isset( $valores['id'] )                       ? $valores['id'] : null;
+        $this->_origen                  = isset( $valores['origen'] )                   ? $valores['origen'] : 'A';
+        $this->_alumnos_id              = isset( $valores['alumnos_id'] )               ? $valores['alumnos_id'] : null;       
+        $this->_tipo_operacion          = isset( $valores['tipo_operacion'] )           ? $valores['tipo_operacion'] : null;       
+        $this->_fecha_operacion         = isset( $valores['fecha_operacion'] )          ? $valores['fecha_operacion'] : null;       
+        $this->_monto                   = isset( $valores['monto'] )                    ? $valores['monto'] : null;       
+        $this->_cobertura               = isset( $valores['cobertura'] )                ? $valores['cobertura'] : 0;       
+        $this->_motivo                  = isset( $valores['motivo'] )                   ? $valores['motivo'] : null;       
+        $this->_comprobante_sede        = isset( $valores['comprobante_sede'] )         ? $valores['comprobante_sede'] : null;       
+        $this->_comprobante             = isset( $valores['comprobante'] )              ? $valores['comprobante'] : null;       
+        $this->_persona_en_caja         = isset( $valores['persona_en_caja'] )          ? $valores['persona_en_caja'] : null;       
+        $this->_observaciones           = isset( $valores['observaciones'] )            ? $valores['observaciones'] : null;       
+        $this->_usuario_nombre          = isset( $valores['usuario_nombre'] )           ? $valores['usuario_nombre'] : null;       
+        $this->_fecha_hora_de_sistema   = isset( $valores['fecha_hora_de_sistema'] )    ? $valores['fecha_hora_de_sistema'] : datetimeMicroseconds(); //date('Y-m-d H:i:s');       
+        $this->_fecha_hora_de_sistema_row_referente = isset( $valores['fecha_hora_de_sistema_row_referente'] )? $valores['fecha_hora_de_sistema_row_referente'] : null;       
+        $this->_error                   = isset( $valores['error'] )                    ? $valores['error'] : null;       
+    }
+
+    public function getId()
+    {
+        return $this->_id;
+    }
+
+    public function getOrigen()
+    {
+        return $this->_origen;
+    }
+
+    public function getAlumnosId()
+    {
+        return $this->_alumnos_id;
+    }
+
+    public function getTipoOperacion()
+    {
+        return $this->_tipo_operacion;
+    }
+
+    public function getFechaOperacion()
+    {
+        return $this->_fecha_operacion;
+    }
+    public function getAnio()
+    {
+        return substr( $this->getFechaOperacion(), 0, 4 );
+    }
+
+    public function getMonto()
+    {
+        return $this->_monto;
+    }
+
+    public function getCobertura()
+    {
+        return $this->_cobertura;
+    }
+    public function setCobertura($cobertura)
+    {
+        return $this->_cobertura = $cobertura;
+    }
+    
+    public function getSaldo()
+    {
+        return $this->getMonto() - $this->getCobertura();
+    }
+
+    public function getMotivo()
+    {
+        return $this->_motivo;
+    }
+
+    public function getComprobanteSede()
+    {
+        return $this->_comprobante_sede;
+    }
+
+    public function getComprobante()
+    {
+        return $this->_comprobante;
+    }
+
+    public function getPersonaEnCaja()
+    {
+        return $this->_persona_en_caja;
+    }
+
+    public function getObservaciones()
+    {
+        return $this->_observaciones;
+    }
+
+    public function getUsuarioNombre()
+    {
+        return $this->_usuario_nombre;
+    }
+
+    public function getFechaHoraDeSistema()
+    {
+        return $this->_fecha_hora_de_sistema;
+    }
+
+    public function getFechaHoraDeSistemaRowReferente()
+    {
+        return $this->_fecha_hora_de_sistema_row_referente;
+    }
+
+    public function getError()
+    {
+        return $this->_error;
+    }
+
+
+
+     /*
+     * Convierte el objeto en array.
+     * Debe hacerse desde la propia clase pues se trata de variables privadas.
+     */
+    public function convertirEnArray()
+    {
+        //return get_object_vars($this); //esto lo devuelve con los underscord
+        $miIterator=array();
+        foreach($this as $key => $value) {
+            $key=substr($key,1); //con esto le quito el underscord primero.
+            $miIterator[$key]=$value;
+        }
+        return $miIterator;
+    }
+
+
+
+}

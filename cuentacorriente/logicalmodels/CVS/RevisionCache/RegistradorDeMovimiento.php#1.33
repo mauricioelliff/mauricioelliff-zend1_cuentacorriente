@@ -1,0 +1,960 @@
+<?php
+
+/*
+ * 
+ */
+
+/**
+ * Description of RegistrarCreditoODebito
+ *
+ * @author mauricio
+ */
+
+require_once 'cuentacorriente/models/CuentaCorrienteColeccion.php';
+require_once 'cuentacorriente/models/CuentaCorrienteElementoValuadoColeccion.php';
+require_once 'cuentacorriente/logicalmodels/FuncionesSobreEVAs.php';
+require_once 'cuentacorriente/logicalmodels/CoberturaOperaciones.php';
+require_once 'cuentacorriente/logicalmodels/ComprobanteDesdeAjnaCentros.php';
+require_once 'cuentacorriente/logicalmodels/VerificadorCuentaCorriente.php';
+require_once 'admin/models/SedeCursoxanioAlumnoColeccion.php';
+require_once 'admin/models/AuditoriaColeccion.php';
+require_once 'extensiones/generales/MiMensajero.php'; 
+
+class RegistradorDeMovimiento {
+    
+    private $_cuentaCorrienteColeccion;
+    private $_funcionesSobreEVAs;
+    private $_coberturaOperaciones;
+    private $_verificadorCuentaCorriente;
+    private $_auditoriaColeccion;
+    private $_MiMensajero;
+    
+    public function __construct( CuentaCorrienteColeccion $CuentaCorrienteColeccion,
+                                 FuncionesSobreEVAs $FuncionesSobreEVAs=null ) 
+    {
+        $this->_cuentaCorrienteColeccion = $CuentaCorrienteColeccion;
+        if(!$FuncionesSobreEVAs){
+            $FuncionesSobreEVAs = new FuncionesSobreEVAs( USUARIO_SEDE_ID );
+        }
+        $this->_funcionesSobreEVAs      = $FuncionesSobreEVAs;
+        $this->_coberturaOperaciones    = new CoberturaOperaciones( USUARIO_SEDE_ID,
+                                                                    $this->_cuentaCorrienteColeccion,
+                                                                    $this->_funcionesSobreEVAs
+                                                                    );
+        $this->_verificadorCuentaCorriente = new VerificadorCuentaCorriente( $CuentaCorrienteColeccion );
+        $this->_auditoriaColeccion = new AuditoriaColeccion();
+        $this->_MiMensajero = new MiMensajero();
+    }
+    
+    
+    
+    /*
+     * INPUT
+     * 
+        params  <array>
+            array(16) {
+              ["module"] => string(5) "admin"
+              ["controller"] => string(13) "administrador"
+              ["action"] => string(13) "datagridsave&"
+              ["sedes_id"] => string(1) "3"
+              ["alumnos_id"] => string(3) "865"  o  ["alumnoId"]
+              ["planilla"] => string(18) "alumno_items_deuda"
+              ["objetoId"] => string(0) ""
+              ["seleccion_deuda_item"] => string(5) "34275"
+              ["monto"] => string(3) "100"
+              ["fecha_operacion"] => string(10) "17/09/2018"
+              ["comprobante"] => string(4) "sdaf"
+              ["persona_en_caja"] => string(7) "Nashika"
+              ["observaciones"] => string(8) "asdfasfd"
+              ["simularPago"] => string(1) "0"
+              ["permisosDelUsuario"] => array(3) {
+                ["usuarioNombre"] => string(9) "LOCALHOST"
+                ["rol"] => string(13) "administrador"
+                ["sede"] => int(3)
+              }
+              ["sede"] => string(1) "3"
+            }
+     * 
+     * 
+     */
+    /*
+    public function registrarPagoDesdeDataGrid( $params )
+    {
+        $otrosDatos = $this->completarDatosPagoDesdeDatagrid( $params );
+        if( is_string($otrosDatos) ){
+            return array( 'ERROR' => array($otrosDatos) );  // error
+        }
+        $pagoDatosCompletos = $otrosDatos + $params;
+
+        $simularPago = ( isset($params['simularPago']) && (int)$params['simularPago'] )? true : false;
+
+        return $this->registrarPago( $pagoDatosCompletos, $simularPago );
+        // return $this->registrarMovimiento( $pagoDatosCompletos, $params['sedes_id'], $simularPago );
+    }
+    public function registrarPagoDesdeMigracion( $params )
+    {
+        $otrosDatos = $this->completarDatosPagoDesdeDatagrid( $params );
+        if( is_string($otrosDatos) ){
+            return array( 'ERROR' => array($otrosDatos) );  // error
+        }
+        $pagoDatosCompletos = $otrosDatos + $params;
+
+        $simularPago = ( isset($params['simularPago']) && (int)$params['simularPago'] )? true : false;
+
+        return $this->registrarPago( $pagoDatosCompletos, $simularPago );
+        // return $this->registrarMovimiento( $pagoDatosCompletos, $params['sedes_id'], $simularPago );
+    }
+     * 
+     */
+    
+    public function distribuirTodosLosCreditosLibres( $sedes_id )
+    {
+        $this->_coberturaOperaciones->distribuirTodosLosCreditosLibres( $sedes_id );        
+    }
+    
+    public function distribuirCreditos( $alumnos_id, $anio=null )
+    {
+        $this->_coberturaOperaciones->distribuirCreditos( $alumnos_id, $anio );        
+    }
+    
+    /*
+     * Registra movimientos en la tabla CuentaCorriente
+     * 
+     * INPUT
+     * $params  <array> 
+            array(19) {
+              ["module"] => string(5) "admin"
+              ["controller"] => string(13) "administrador"
+              ["action"] => string(12) "datagridsave"
+              ["sedes_id"] => string(1) "9"
+              ["alumnos_id"] => string(8) "23700502"      o  ["alumnoId"]
+              ["planilla"] => string(11) "pago_alumno"
+              ["objetoId"] => string(0) ""
+     
+              ["seleccion_deuda_item"] => array(3) {
+                [0] => string(4) "2221"         Indica los EVSCXA_ID que desea pagar
+                [1] => string(4) "2222"
+                [2] => string(8) "A_CUENTA"    indica que ha seleccionado algun item que tienen evscxa_id en null
+                }
+     
+                o, si no ha seleccionado items, y a seleccionado A_CUENTA:
+              ["seleccion_a_cuenta"] => string(8) "A_CUENTA"
+
+              ["monto"] => string(2) "10"
+              ["fecha_operacion"] => string(10) "2018-11-24"
+              ["comprobante"] => string(3) "dfs"
+              ["persona_en_caja"] => string(12) "Laukika Devi"
+              ["observaciones"] => string(4) "asdf"
+              ["simularPago"] => string(1) "0"
+              ["pagoYaSimulado"] => string(1) "0"
+              ["permisosDelUsuario"] => array(3) {
+                ["usuarioNombre"] => string(9) "LOCALHOST"
+                ["rol"] => string(13) "administrador"
+                ["sede"] => int(3)
+              }
+              ["sede"] => string(1) "9"
+              ["tipo_operacion"] => string(11) "PAGO_MANUAL"
+              ["motivo"] => string(0) ""
+            }
+     *  simularPago   <boolean>     Default 0(FALSE).
+     *           De estar en 1(TRUE) devuelve los datos
+     *           como si el pago se hiciese en verdad,
+     *           lo que puede permitir al operador,
+     *           aceptar o no la operación de pago antes de 
+     *           que realmente se lleve a cabo.
+     * 
+     *           Sería útil cuando se paga más del item indicado,
+     *           o cuando el pago es A_CUENTA,
+     *           permitiendo que el usuario vea y confirme el pago .
+     * 
+     * 
+     * OUTPUT
+     *      <array>             
+     *          key => 'ERROR'  => array() descripciones key de los errores.
+     *                                      El movmiento no era viable.
+     *      
+     *      
+     *      <array>     'credito' => id del credito
+     *                                      Si no hubo débitos a los que asignar el pago.
+     * 
+     *      ADEMÁS SI SE TRATA DE UN PAGO O NOTA DE CREDITO:
+     *      Caso 1:     No paga nada y el importe queda a cuenta:
+     *      <array>
+     * 
+     *      Caso 2:     Paga distintos items.
+     *      <array>     
+     *          'objetos'       => array, Detalle con los objetos CuentaCorriente débitos trabajados:
+     *          'pagos'         => array, Pagos realizados a cada uno.
+     *         EJ:
+            array(3) {
+                  ["objetos"] => array(2) {
+                    [41861] => object(CuentaCorriente)#338 (12) {
+                      ["_id":"CuentaCorriente":private] => string(5) "41861"
+                      ["_alumnos_id":"CuentaCorriente":private] => string(3) "865"
+                      ["_tipo_operacion":"CuentaCorriente":private] => string(18) "FACTURA_AUTOMATICA"
+                      ["_fecha_operacion":"CuentaCorriente":private] => string(10) "2018-06-01"
+                      ["_monto":"CuentaCorriente":private] => string(5) "-1700"
+                      ["_cobertura":"CuentaCorriente":private] => int(-1700)
+                      ["_motivo":"CuentaCorriente":private] => string(29) "2018, CU3 profesorado nivel 2"
+                      ["_comprobante":"CuentaCorriente":private] => string(8) "no_tiene"
+                      ["_persona_en_caja":"CuentaCorriente":private] => string(18) "proceso_automatico"
+                      ["_observaciones":"CuentaCorriente":private] => string(276) "Sistemas inicializa coberturas. Le asigna $200Sistemas inicializa coberturas. Le asigna $300Sistemas inicializa coberturas. Le asigna $300Sistemas inicializa coberturas. Le asigna $55Sistemas inicializa coberturas. Le asigna $845Sistemas inicializa coberturas. Le asigna $1700"
+                      ["_usuario_nombre":"CuentaCorriente":private] => string(18) "proceso_automatico"
+                      ["_fecha_hora_de_sistema":"CuentaCorriente":private] => string(19) "2018-06-01 13:13:14.123456"
+                    }
+                    ...
+                  }
+                  ["pagos"] => array(2) {
+                    [41861] => int(1700)
+                    [41545] => int(300)
+                  }
+                  
+                }
+     * 
+     */
+    public function registrarMovimiento( $params )
+    {
+        // Completo algunos valores:
+        $params['alumnos_id']       = ( isset($params['alumnos_id']) )? $params['alumnos_id'] : $params['alumnoId'];
+        $params['usuario_nombre']   = USUARIO_NOMBRE;
+
+        // ¿Tiene los datos básicos para registrar el movimiento?
+        $viable = $this->esAltaViable( $params );
+        if( $viable !== TRUE ){
+            return $this->_returnErrores( $viable );
+        }
+        
+        // ¿Es alumno de la sede en cuestión o es un administrador?
+        $sedeCursoxanioAlumnoColeccion = new SedeCursoxanioAlumnoColeccion();
+        $alumnosDeLaSede = $sedeCursoxanioAlumnoColeccion->getAlumnosDeLaSede($params['sedes_id']);
+        if( $params['permisosDelUsuario']['rol']!='administrador' &&
+            !in_array( $params['alumnos_id'], $alumnosDeLaSede )
+            ){
+            return $this->_returnErrores( 'El alumno no pertenece a la sede.' );
+        }
+        
+        $simularAccion = ( isset($params['simularPago']) && (int)$params['simularPago'] )? true : false;
+        //
+        switch ( $params['tipo_operacion'] ) {
+            case 'DEBITO_MANUAL':
+            case 'DEBITO_AUTOMATICO':
+                // Los débitos deben ser montos negativos
+                $params['monto'] = ( $params['monto']<0 )? $params['monto'] : -$params['monto'];
+                $m = $this->_registrarNotaDebito( $params, $simularAccion );
+                $this->_enviarMailSiHayInconsistencias( $params['alumnos_id'] );
+                return $m;
+                
+            case 'FACTURA_AUTOMATICA':
+                $params['monto'] = ( $params['monto']<0 )? $params['monto'] : -$params['monto'];
+                return $this->_registrarDebitoAutomatico( $params ); // y distribuye créditos
+                
+            case 'PAGO_MANUAL':
+                $m = $this->_registrarPago( $params, $simularAccion );   
+                $this->_enviarMailSiHayInconsistencias( $params['alumnos_id'] );
+                return $m;
+                
+            case 'NOTA_CREDITO_MANUAL':
+            case 'NOTA_CREDITO_AUTOMATICO':
+                $m = $this->_registrarNotaCredito( $params, $simularAccion );                
+                $this->_enviarMailSiHayInconsistencias( $params['alumnos_id'] );
+                return $m;
+
+            case 'PAGO_MIGRACION':
+                // la distribución de los créditos en los débitos, se hace en la parte final
+                // de la migración, por eso se pide aquí que no se haga.
+                return $this->_registrarPagoMigracion( $params, $distribuirEnDebitos=false );                
+
+            default:
+                break;
+        }
+        return $this->_returnErrores( 'Movimiento para cuentas corrientes no identificado.' );
+    }
+    
+    
+    
+    /*
+     * OUTPUT
+     *      Por ERROR:
+     *      <array>             
+     *          key => 'ERROR'  => array() descripciones key de los errores.
+     *                                      El movimiento no era viable.
+     * 
+     *      Por OK:
+     * 
+     *      Caso 1:     No paga nada y el importe queda a cuenta:
+     *      <array>
+     *          
+     * 
+     *      Caso 2:     Paga distintos items.
+     *      <array>     
+     *          'objetos'       => array, Detalle con los objetos CuentaCorriente débitos trabajados:
+     *          'pagos'         => array, Pagos realizados a cada uno.
+     *         
+     * 
+            array(3) {
+                  ["objetos"] => array(2) {
+                    [41861] => object(CuentaCorriente)#338 (12) {
+                      ["_id":"CuentaCorriente":private] => string(5) "41861"
+                      ["_alumnos_id":"CuentaCorriente":private] => string(3) "865"
+                      ["_tipo_operacion":"CuentaCorriente":private] => string(18) "FACTURA_AUTOMATICA"
+                      ["_fecha_operacion":"CuentaCorriente":private] => string(10) "2018-06-01"
+                      ["_monto":"CuentaCorriente":private] => string(5) "-1700"
+                      ["_cobertura":"CuentaCorriente":private] => int(-1700)
+                      ["_motivo":"CuentaCorriente":private] => string(29) "2018, CU3 profesorado nivel 2"
+                      ["_comprobante":"CuentaCorriente":private] => string(8) "no_tiene"
+                      ["_persona_en_caja":"CuentaCorriente":private] => string(18) "proceso_automatico"
+                      ["_observaciones":"CuentaCorriente":private] => string(276) "Sistemas inicializa coberturas. Le asigna $200Sistemas inicializa coberturas. Le asigna $300Sistemas inicializa coberturas. Le asigna $300Sistemas inicializa coberturas. Le asigna $55Sistemas inicializa coberturas. Le asigna $845Sistemas inicializa coberturas. Le asigna $1700"
+                      ["_usuario_nombre":"CuentaCorriente":private] => string(18) "proceso_automatico"
+                      ["_fecha_hora_de_sistema":"CuentaCorriente":private] => string(19) "2018-06-01 13:13:14.123456"
+                    }
+                    ...
+                  }
+                  ["pagos"] => array(2) {
+                    [41861] => int(1700)
+                    [41545] => int(300)
+                  }
+       
+                  ["evscxa"] => array(2) {
+                    [334] => array
+                                ctacteid
+                                [41861] => int(1700)
+                                [41545] => int(300)
+                    [335] => array
+                                [41545] => int(300)
+                  }
+       
+                  ["credito_disponible"] => int(0)
+                  
+                }
+     * 
+     */
+    private function _registrarPago( $datosDelMov, $simularPago=false )
+    {
+        
+        $alumnos_id = (int)$datosDelMov['alumnos_id'];
+        $evscxaIdSeleccionado = $this->_getItemsSeleccionados( $datosDelMov );
+                        
+        $datosDelMov['motivo'] = ( count($evscxaIdSeleccionado)==0)? 'A cuenta. ' : $datosDelMov['motivo']; 
+        $datosDelMov['comprobante']= (empty($datosDelMov['comprobante']))? null : $datosDelMov['comprobante'];
+        $datosDelMov['comprobante_sede']= ( is_null($datosDelMov['comprobante']) )? null : USUARIO_SEDE_ID;
+                
+        // 1° Registro del movimiento.       
+        if( !$simularPago ){
+            
+            // Antes obtengo la lista con datos completos 
+            // de lo que el usuario podía seleccionar, agrupado por evscxa
+            // (esto es para pasarle luego a la fn. de comprobante)
+            $listaDeudasPorEvscxa = 
+                $this->_cuentaCorrienteColeccion->getEvscxaPorSaldar( $alumnos_id );
+            // ----
+            
+            if( $this->_existeComprobante( $datosDelMov['comprobante_sede'], $datosDelMov['comprobante'] ) ){
+                $datosDelMov['observaciones'].= 'SISTEMA: El comprobante ya existe en esta sede: '.$datosDelMov['comprobante'].'. ';
+                $datosDelMov['comprobante_sede']= null;
+                $datosDelMov['comprobante']= null;
+            }
+                        
+            $datosDelMov['id'] = $this->_cuentaCorrienteColeccion->altaGeneral( $datosDelMov, 'CuentaCorriente' );
+            if( !$datosDelMov['id'] ){
+                return $this->_returnErrores( 'Error en escritura de nuevo pago en CuentaCorriente.' );
+            }
+            // Auditoría
+            $this->_auditoriaColeccion
+                    ->registrar( 'alta', 'cuentas_corrientes', $datosDelMov['id'], 
+                                arrays_getAlgunasKeys( $datosDelMov, $this->_getCamposIndispensables($datosDelMov['tipo_operacion']) ) );
+        }
+        
+        // 2° Distribución de los montos.       
+        // 
+        // Rows que se pagarán.
+        // Pongo el item seleccionado, como el primero a pagar.
+        $listaDeudas = 
+                $this->_cuentaCorrienteColeccion->getRowsPorSaldar( $alumnos_id, $evscxaIdSeleccionado );
+        $objetosDondeDistribuir = $this->_cuentaCorrienteColeccion->transformarLaListaDeArraysEnListaDeObjetos( $listaDeudas );
+
+        // row a row, indico a que evscxa_id 
+        $evscxaidDeLosObjetos = arrays_getAlgunasKeysArrays( $listaDeudas, array('evscxa_id') );
+
+
+        $debitosTrabajados = $this->_distribuirCredito( $datosDelMov, $objetosDondeDistribuir, $evscxaidDeLosObjetos, $simularPago );
+        /* $debitosTrabajados
+         *      <array>     Detalle con los objetos CuentaCorrienteDebito  saldados
+                array(4) {
+                  ["objetos_debito"] => array(2) {  OBJETOS QUE FUERON/SERÁN MODIFICADOS
+                    [41861] => object(CuentaCorriente)#338 (12) {
+                      ["_id":"CuentaCorriente":private] => string(5) "41861"
+                      ["_alumnos_id":"CuentaCorriente":private] => string(3) "865"
+                      ["_tipo_operacion":"CuentaCorriente":private] => string(18) "FACTURA_AUTOMATICA"
+                      ["_fecha_operacion":"CuentaCorriente":private] => string(10) "2018-06-01"
+                      ["_monto":"CuentaCorriente":private] => string(5) "-1700"
+                      ["_cobertura":"CuentaCorriente":private] => int(-1700)
+                      ["_motivo":"CuentaCorriente":private] => string(29) "2018, CU3 profesorado nivel 2"
+                      ["_comprobante":"CuentaCorriente":private] => string(8) "no_tiene"
+                      ["_persona_en_caja":"CuentaCorriente":private] => string(18) "proceso_automatico"
+                      ["_observaciones":"CuentaCorriente":private] => string(276) "Sistemas inicializa coberturas. Le asigna $200Sistemas inicializa coberturas. Le asigna $300Sistemas inicializa coberturas. Le asigna $300Sistemas inicializa coberturas. Le asigna $55Sistemas inicializa coberturas. Le asigna $845Sistemas inicializa coberturas. Le asigna $1700"
+                      ["_usuario_nombre":"CuentaCorriente":private] => string(18) "proceso_automatico"
+                      ["_fecha_hora_de_sistema":"CuentaCorriente":private] => string(19) "2018-06-01 13:13:14.123456"
+                    }
+                    [41545] => object(CuentaCorriente)#344 (12) {
+                      ["_id":"CuentaCorriente":private] => string(5) "41545"
+                      ...
+                    }
+                  }
+                  ["pagos"] => array(2) {
+                    [41861] => int(1700)
+                    [41545] => int(300)
+                  }
+                  ["evscxa"] => array(2) {
+                    [334] => array
+                                ctacteid
+                                [41861] => int(1700)
+                                [41545] => int(300)
+                    [335] => array
+                                [41545] => int(300)
+                  }
+                  ["credito_disponible"] => int(0)
+                }
+         */
+        $debitosTrabajados['monto']= $datosDelMov['monto'];
+        $debitosTrabajados['errores']=array();
+
+        // *********************************************************************
+        if(!$simularPago){
+            $this->_repararErroresViejosConCobertura( $alumnos_id );
+            
+            // COMPROBANTE
+            $datosDelMov['comprobante_sede'] = USUARIO_SEDE_ID;
+            if( $datosDelMov['comprobante_tipo']=='automatico' ){
+                $ComprobanteDesdeAjnaCentros = new ComprobanteDesdeAjnaCentros();
+                $cAC = $ComprobanteDesdeAjnaCentros->getComprobanteDesdeAjnaCentros( $datosDelMov['alumnos_id'], $listaDeudasPorEvscxa, $debitosTrabajados );
+                
+                if( $cAC !== false ){
+                    $datosDelMov['comprobante']= $cAC;
+                    $datosDelMov['comprobante_sede']= USUARIO_SEDE_ID;
+                    // comprobante_sede + comprobante,  debe es unique por constrain.
+                    if( $this->_existeComprobante( $datosDelMov['comprobante_sede'], $datosDelMov['comprobante'] ) ){
+                        $datosDelMov['observaciones'].= 'SISTEMA: El comprobante ya existe en esta sede: '.$datosDelMov['comprobante'].'. ';
+                        $mje='Comprobante automático ya existe: '.$datosDelMov['comprobante'];
+                        $debitosTrabajados['errores'][]=$mje;
+                        $this->_MiMensajero->addColeccionMensajes( array( 'ERROR', $mje ) );
+                        // $datosDelMov['comprobante_sede']= null;
+                        // $datosDelMov['comprobante']= null;
+                        // no es necesario actualizar, los datos se escribieron en NULL al dar el alta.
+                    }else{
+                        // Los datos son correctos
+                        $comprobanteModificado = array( 'id'=>$datosDelMov['id'],'comprobante_sede'=>$datosDelMov['comprobante_sede'], 'comprobante'=>$datosDelMov['comprobante'] );
+                        $this->_cuentaCorrienteColeccion->modificacionactualizacionGeneral( $comprobanteModificado, 'CuentaCorriente' );
+                    }
+                }else{
+                    // error en Ajna Centros
+                    $mje='Recibo no generado. Error en AjnaCentros.';
+                    $debitosTrabajados['errores'][]=$mje;
+                    $this->_MiMensajero->addColeccionMensajes( array( 'ERROR', $mje ) );
+                    // $datosDelMov['comprobante_sede']= null;
+                    // $datosDelMov['comprobante']= null;
+                    // no es necesario actualizar, los datos se escribieron en NULL al dar el alta.
+                }
+            }else{
+                // comprobante manual, ya se guardo al dar el alta.
+            }
+        }
+            
+        return $debitosTrabajados;
+    }
+    
+    private function _existeComprobante( $comprobante_sede, $comprobante )
+    {
+        if( is_null($comprobante_sede) || is_null($comprobante) ){
+            return false;
+        }
+        $buscar = array('comprobante_sede'  => $comprobante_sede,
+                        'comprobante'       => $comprobante,
+                        );
+        $existe = $this->_cuentaCorrienteColeccion->obtenerGeneral($buscar,'id','CuentaCorriente');
+        return ($existe)? true : false;
+    }
+    
+        
+    /*
+     * En algun momento, por disintos errores, 
+     * hubo alumnos que no tenían las coberturas completamente distribuidas.
+     * Ahora, repitiendo el proceso en modo general, es decir sin indicar que elementos trabajar
+     * barro todos los créditos en busca de distribuir las coberturas.
+     * Hacia fin de 2019, este proceso podrá ser eliminado.
+     */
+    private function _repararErroresViejosConCobertura( $alumnos_id )
+    {
+        $this->_coberturaOperaciones->distribuirCreditos($alumnos_id);
+    }
+    
+    private function _registrarNotaCredito( $datosDelMov, $simularPago=false )
+    {
+        $alumnos_id = (int)$datosDelMov['alumnos_id'];
+        $evscxaIdSeleccionados = $this->_getItemsSeleccionados( $datosDelMov );
+        
+        // CONTROLES PREVIOS
+        // $itemsValidosActuales = $this->_cuentaCorrienteColeccion->getEvscxaActuales( $alumnos_id, $datosDelMov['anio'] );
+        $itemsConDeuda = $this->_cuentaCorrienteColeccion->getEvscxaPorSaldar( $alumnos_id );
+        
+        // El o los elementos seleccionados, alguno debe existir en el dominio de los posibles.
+        if( count($evscxaIdSeleccionados)>0 ){  //!=='A_CUENTA' ){
+            $flagSePagaranAlgoDeLoSeleccionado = false;
+            foreach( $evscxaIdSeleccionados as $evscxa_id ){
+                $itemValidoId = arrays_getKeyConValorBuscado($itemsConDeuda, 'evscxa_id', $evscxa_id );
+                if( $itemValidoId ){
+                    $flagSePagaranAlgoDeLoSeleccionado = true;
+                    break;
+                }
+            }
+            if( !$flagSePagaranAlgoDeLoSeleccionado ){
+                return $this->_returnErrores( 'El item seleccionado no es correcto para aplicar un crédito.' );
+            }
+        }
+        return $this->_registrarPago( $datosDelMov, $simularPago );
+    }    
+    
+    
+    /*
+     * OUTPUT
+     *  array con los items o array vacío si va "A_CUENTA"
+     */
+    private function _getItemsSeleccionados( $datosDelMov )
+    {
+        if( isset( $datosDelMov['seleccion_a_cuenta']) && 
+                $datosDelMov['seleccion_a_cuenta']== 'A_CUENTA' ){
+            $evscxaIdSeleccionado = array();
+        }elseif( isset( $datosDelMov['seleccion_deuda_item'] ) ){
+            $datosDelMov['seleccion_deuda_item'] = is_array($datosDelMov['seleccion_deuda_item'])? $datosDelMov['seleccion_deuda_item'] : array($datosDelMov['seleccion_deuda_item']);
+            // si ha elegido varios valores a apagar, y entre ellos "A_CUENTA"
+            // lo quito, ya que la operatoria de pagos luego ya sigue con los items a cuenta.
+            if( in_array( 'A_CUENTA', $datosDelMov['seleccion_deuda_item'] ) ){
+                // lo borro, ya que la operatoria de selección de pagos es la misma.
+                // y da prioridad a aquellos items que no tienen evscxa_id
+                unset( $datosDelMov['seleccion_deuda_item'][ array_search('A_CUENTA', $datosDelMov['seleccion_deuda_item']) ] );
+            }
+            $evscxaIdSeleccionado = $datosDelMov['seleccion_deuda_item'];
+        }else{
+            $evscxaIdSeleccionado = array();
+        }
+        return $evscxaIdSeleccionado;
+    }
+    
+    
+    private function _distribuirCredito( $datosDelMov, $objetosDondeDistribuir, $evscxaidDeLosObjetos,  $simularPago )
+    {
+        $CuentaCorrienteCredito = new CuentaCorriente( $datosDelMov );
+        $debitosTrabajados = $this->_coberturaOperaciones
+                                    ->distribuirUnCredito(  $CuentaCorrienteCredito, 
+                                                            $objetosDondeDistribuir,
+                                                            $evscxaidDeLosObjetos,
+                                                            $simularPago 
+                                                        );
+        // Actualización del motivo en cuentas corrientes con lo que se pago.
+        if( count($debitosTrabajados['objetos_debito'])>0 ){
+            if( !$simularPago ){
+                $motivo = '';
+                foreach( $debitosTrabajados['objetos_debito'] as $CuentaCorriente ){
+                    $motivo.= $CuentaCorriente->getMotivo().
+                            '($'.$debitosTrabajados['pagos'][$CuentaCorriente->getId()].'). ';
+                }
+                $datosDelMov['motivo'] = $motivo;
+                $this->_cuentaCorrienteColeccion->modificacionactualizacionGeneral( $datosDelMov, 'CuentaCorriente' );
+            }
+
+            //$debitosTrabajados['sobrante'] = (int)$datosDelMov['monto'] - array_sum( $debitosTrabajados['pagos'] );
+        }
+        $debitosTrabajados['monto'] = $CuentaCorrienteCredito->getMonto();
+        return $debitosTrabajados;
+    }
+    
+    
+    private function _registrarPagoMigracion( $datosDelMov, $distribuirEnDebitos=false )
+    {
+        $alumnos_id = (int)$datosDelMov['alumnos_id'];
+        
+        // 1° Registro del movimiento.       
+            $datosDelMov['id'] = $this->_cuentaCorrienteColeccion->altaGeneral( $datosDelMov, 'CuentaCorriente' );
+            if( !$datosDelMov['id'] ){
+                return $this->_returnErrores( 'Error en escritura de nuevo pago en CuentaCorriente.' );
+            }
+            // Auditoría
+            $this->_auditoriaColeccion
+                    ->registrar( 'alta', 'cuentas_corrientes', $datosDelMov['id'], 
+                                arrays_getAlgunasKeys( $datosDelMov, $this->_getCamposIndispensables($datosDelMov['tipo_operacion']) ) );
+        
+        if( $distribuirEnDebitos ){
+            // 2° Distribución de los montos. Salda deudas, o queda a cuenta.
+            $listaDeudas = 
+                    $this->_cuentaCorrienteColeccion->getRowsPorSaldar( $alumnos_id );
+            $objetosDondeDistribuir = $this->_cuentaCorrienteColeccion->transformarLaListaDeArraysEnListaDeObjetos( $listaDeudas );
+            $evscxaidDeLosObjetos = arrays_getAlgunasKeysArrays( $listaDeudas, array('evscxa_id') );
+            
+            
+            $debitosTrabajados = $this->_distribuirCredito( $datosDelMov, $objetosDondeDistribuir, $evscxaidDeLosObjetos, $simularPago=false );
+            return $debitosTrabajados;
+        }
+        return true;
+    }
+    
+    /*
+     * INPUT
+     * 
+     * $deudaData
+            array{                     
+                'alumnos_id'        
+                'tipo_operacion'    
+                'motivo'            
+                'fecha_operacion'   
+                'monto'             
+                'comprobante'       
+                'persona_en_caja'   
+                'usuario_nombre'    
+                //'observaciones'   
+                //'fecha_hora_de_sistema' 
+                'permisosDelUsuario'
+                'evscxa_id'         
+              }
+     * $actualizacionCoberturas     <boolean>   Normalmente las coberturas serán actualizadas.
+     *                                          Sin embargo, procesos como la migración,
+     *                                          actualizan las coberturas al final
+     *                                          de todo el proceso de toma de datos.
+     * 
+     * OUTPUT
+     *      Por error:
+     *      <array>             
+     *          key => 'ERROR'  => array() descripciones key de los errores.
+     *                                      El movmiento no era viable.
+     *      Por ok:
+     *          TRUE
+     * 
+     */
+    private function _registrarDebitoAutomatico( $deudaData )
+    {
+        // 1° Registro del movimiento.
+        $deudaData['id'] = $this->_cuentaCorrienteColeccion->altaGeneral( $deudaData, 'CuentaCorriente' );
+        if( !$deudaData['id'] ){
+            return $this->_returnErrores( 'Error en escritura de deuda regular en CuentaCorriente.' );
+        }
+        $CuentaCorrienteDebito = new CuentaCorriente( $deudaData );
+        
+        // Auditoría
+        $this->_auditoriaColeccion
+                ->registrar( 'alta', 'cuentas_corrientes', $deudaData['id'], 
+                            arrays_getAlgunasKeys( $deudaData, $this->_getCamposIndispensables($deudaData['tipo_operacion']) ) );
+        
+        // Crea registro en tabla de relación
+        if( isset( $deudaData['evscxa_id'] ) ){
+            $this->_coberturaOperaciones->crearRelacionMovimiento( $CuentaCorrienteDebito, (int)$deudaData['evscxa_id'], $CuentaCorrienteDebito->getMonto() );   // origen débito
+        }
+        
+        // recalcula las coberturas.
+        $this->_coberturaOperaciones
+                ->distribuirCreditos( $deudaData['alumnos_id'], substr($deudaData['fecha_operacion'],0,4) );
+        
+        return TRUE;
+    }
+    
+    
+    // ESTA FN ESTA EN MODO PARCHE,,,PARA ALGUNAS FUNCIONES DE CUENTACORRIENTECOLECCION  
+    public function crearRelacionMovimiento( $CuentaCorriente, $evscxaId, $montoAsignado )
+    {
+        $this->_coberturaOperaciones->crearRelacionMovimiento( $CuentaCorriente, $evscxaId, $montoAsignado );  
+    }    
+    
+    /*
+     * Recibe un importe que debe aplicarse para aumentar la deuda de un item,
+     * disminuyendo el monto que se haya pagado, con un máximo de hacerlo llegar a cero.
+     * Esa restricción puede saltearse indicando que 
+     * la Nota de Débito se ajusta a la cuenta completa ( A_CUENTA ).
+     * 
+     * 
+     * 
+     * OUTPUT
+     *      Por error:
+     *      <array>             
+     *          key => 'ERROR'  => array() descripciones key de los errores.
+     *                                      El movimiento no era viable.
+     *      Por ok:
+     *          TRUE
+     * 
+     */
+    private function _registrarNotaDebito( $datosDelMov, $simularAccion=false )
+    {
+        $alumnos_id = (int)$datosDelMov['alumnos_id'];
+               
+        // CONTROLES PREVIOS
+        //$filtrar = $this->_cuentaCorrienteColeccion->getFiltroParaObtenerMovimientosQuePuedenAplicarNotaDeDebito();
+        //$itemsValidos = $this->_cuentaCorrienteColeccion        // key cuentas corrientes id
+        //                        ->getCuentaCorrienteEvscxa( $alumnos_id, $filtrar, $groupByEvscxa=true );
+        // despues:   $itemsValidos = $this->_cuentaCorrienteColeccion->getEvscxaPorSaldar( $alumnos_id );
+        $itemsValidos = $this->_cuentaCorrienteColeccion->getEvscxaActuales( $alumnos_id, $datosDelMov['anio'] );
+        // nota débito solo permite 1 item seleccionado:
+        $datosDelMov['seleccion_deuda_item'] = ( isset($datosDelMov['seleccion_deuda_item']) && is_array($datosDelMov['seleccion_deuda_item']) )? getPrimero($datosDelMov['seleccion_deuda_item']) : 'A_CUENTA';
+
+        // El elemento seleccionado, debe existir en el dominio de los posibles.
+        if( $datosDelMov['seleccion_deuda_item']!='A_CUENTA' ){
+            $itemValidoId = arrays_getKeyConValorBuscado($itemsValidos, 'evscxa_id', $datosDelMov['seleccion_deuda_item'] );
+            if( !$itemValidoId ){
+                return $this->_returnErrores( 'El item seleccionado no es correcto para aplicar un débito.' );
+            }
+            // ok. item válido
+            // ctacte a que refiere:
+            $filtroItemCtaCteOrigen ='monto<0 AND evscxa_id = '.$itemsValidos[$itemValidoId]['evscxa_id'] ;
+            $debitoDestinoValues = $this->_cuentaCorrienteColeccion 
+                                        ->getCuentaCorrienteEvscxa( $alumnos_id, $filtroItemCtaCteOrigen, false );
+            // es un débito, solo es un movimiento, me quedo con el primer item del array
+            $debitoDestinoValues = ( $debitoDestinoValues && is_array($debitoDestinoValues) )? getPrimero($debitoDestinoValues) : $debitoDestinoValues;
+            
+        }else{
+            // A_CUENTA
+            $debitoDestinoValues = null; 
+        }
+        
+
+        
+        
+        
+        if( !is_null($debitoDestinoValues) ){
+            /* $debitoDestinoValues
+             * 
+             * ["cuentas_corrientes_id"] => string(5) "56259"
+             * ["alumnos_id"] => string(8) "20586865"
+             * ["tipo_operacion"] => string(13) "DEBITO_MANUAL"
+             * ["monto"] => string(4) "-100"
+             * ["cobertura"] => string(4) "-100"
+             * ["motivo"] => string(29) "2018, MAT profesorado nivel 1"
+             * ["fecha_operacion"] => string(10) "2019-03-04"
+             * ["scxa_id"] => string(3) "222"
+             * ["sedes_id"] => string(1) "3"
+             * ["anio"] => string(4) "2018"
+             * ["cursos_id"] => string(1) "3"
+             * ["nombre_humano"] => string(30) "Profesorado Natha Yoga Nivel 1"
+             * ["descripcion"] => string(27) "Profesorado de Yoga Curso 1"
+             * ["valor_modificado"] => NULL
+             * ["valor_final_calculado"] => string(4) "1200"
+             * ["ev_abreviatura"] => string(3) "MAT"
+             * ["evscxa_id"] => string(4) "2192"
+             * ["evscxa_fecha_inicio"] => string(10) "2018-03-01"
+             * ["evscxa_valor"] => string(4) "1200"
+             * ["ev_numero_de_orden"] => string(1) "1"
+             * ["ev_id"] => string(1) "1"
+             * ["prioridad_segun_anio"] => string(1) "1"
+             * ["scxa_ordenado"] => string(1) "2"
+             */
+            
+            $CuentaCorrienteDebitoDestino = $this->_cuentaCorrienteColeccion
+                                                    ->obtenerPorIdGeneral(
+                                                        $debitoDestinoValues['cuentas_corrientes_id'], 
+                                                        'CuentaCorriente' 
+                                                        );
+            
+            // CONTROLES, (POR AHORA HE QUITADO ESTE CONTROL)
+            // si hay un item seleccionado, 
+            // sin importar que ya haya pagado todo. 
+            // la deuda resultante no debe pasar el precio del item (con su sumatoria de ND y NC),
+            // sino, sería en realidad, un cambio de precio.
+            // if( !$esViable ){ return $this->_returnErrores(); }
+            // FIN CONTROLES
+
+        }else{
+            $CuentaCorrienteDebitoDestino = null;
+        }
+
+        $debitosTrabajados = array( 'objetos_debito'    => array(), 
+                                    'pagos'             => array(), 
+                                    );
+
+        // 1° Registro del movimiento inicial.
+        if( !$simularAccion ){
+            $datosDelMov['id'] = $this->_cuentaCorrienteColeccion->altaGeneral( $datosDelMov, 'CuentaCorriente' );        
+            $datosDelMov['motivo']='Nota Débito manual A_CUENTA. '.date('Y'); //luego actualizaré el texto.
+            if( !$datosDelMov['id'] ){
+                return $this->_returnErrores( 'Error en escritura de nuevo pago en CuentaCorriente.' );
+            }
+            // Auditoría
+            $this->_auditoriaColeccion
+                    ->registrar( 'alta', 'cuentas_corrientes', $datosDelMov['id'], 
+                                arrays_getAlgunasKeys( $datosDelMov, $this->_getCamposIndispensables($datosDelMov['tipo_operacion']) ) );
+        }
+        
+        // pongo aquí el armado del objeto origen, pues ya obtuve su ID al hacer el alta.
+        $CuentaCorrienteDebitoOrigen = new CuentaCorriente( $datosDelMov );
+
+        
+        // 2° Distribución del monto.  
+        if( $datosDelMov['seleccion_deuda_item']=='A_CUENTA' ){
+            
+            
+            if( !$simularAccion ){                
+                //Intentará distribuir créditos para ver si alguno lo puede pagar.
+                $aux = $this->_coberturaOperaciones
+                        ->distribuirCreditos(   $datosDelMov['alumnoId'], 
+                                                null, // busco créditos de cualquier año.  antes: substr( $datosDelMov['fecha_operacion'], 0, 4 ), 
+                                                $simularAccion
+                                            );
+                // Si algo se proceso, reemplazo los resultados con esos datos.
+                // $resultadoDistri = ( count($aux['objetos_debito'])>0 )? $aux : $debitosTrabajados;
+            }
+        }else{
+            $datosDelMov['motivo']= $debitoDestinoValues['motivo'];
+                                    //$debitoDestinoValues['nombre_humano'].' '.
+                                    //$debitoDestinoValues['ev_abreviatura'];
+                                    // ... coincidirá con el ctacte motivo del destino
+       
+
+
+
+            $resultadoDistri = $this->_coberturaOperaciones
+                                        ->distribuirUnDebitoEnOtroDebito(  
+                                                                $CuentaCorrienteDebitoOrigen, 
+                                                                $CuentaCorrienteDebitoDestino,
+                                                                $debitoDestinoValues['evscxa_id'],
+                                                                $simularAccion 
+                                                            );
+            
+            if( $resultadoDistri && !$simularAccion){            
+                // Actualizo el motivo del pago, con todo lo que fue pagado.
+                $this->_cuentaCorrienteColeccion->modificacionactualizacionGeneral( $datosDelMov, 'CuentaCorriente' );
+                // $auditoriaColeccion->registrar( 'modificacion', 'cuentas_corrientes', $datosDelMov['id'], $antesYDespues );
+            }
+            //ver($resultadoDistri,'$resultadoDistri');
+            $debitosTrabajados = $resultadoDistri;
+        }
+        $debitosTrabajados['monto']= $datosDelMov['monto'];
+        
+        // *********************************************************************
+        if(!$simularAccion){
+            $this->_repararErroresViejosConCobertura( $alumnos_id );
+        }
+        
+        
+        return $debitosTrabajados ;
+    }
+    
+        
+    /*
+     * OUTPUT
+     * TRUE             si es viable
+     * <string><array>  si no lo es     errores
+     */
+    public function esAltaViable( $params )
+    {
+        // tipo de operación válido
+        if( !isset($params['tipo_operacion']) || 
+            !in_array(  $params['tipo_operacion'], 
+                        $this->_cuentaCorrienteColeccion->getTipoOperacionDominio() ) ){
+            return 'TIPO_DE_OPERACION_NO_IDENTIFICADA';
+        }
+        
+        
+        if( ($errores=$this->verificacionCamposIndispensables( $params )) !==TRUE ){
+            return array_merge( array( 'FALTA_CAMPO_INDISPENSABLE' ),( is_array($errores)? $errores : array($errores) ) );
+        }
+        
+        // motivo dentro del dominio de motivos
+        if( !in_array( $params['motivo'], $this->_cuentaCorrienteColeccion
+                                                ->motivosPorTipoOperacion[ $params['tipo_operacion'] ] ) ){
+            //return 'MOTIVO_DE_OPERACION_NO_IDENTIFICADO';
+        }
+                
+        // verificación fecha de operación válida. DEBE TENER EXACTAMENTE 10 DIGITOS TOTAL. SINO DA ERROR.
+        if( !validateDate( $params['fecha_operacion'] ) || $params['fecha_operacion']>date('Y-m-d') ){
+            return 'FECHA_DE_OPERACION_NO_VALIDA';
+        }
+        
+        // verificación unique
+        $existe = $this->_cuentaCorrienteColeccion->existeEsteMovimiento( $params );
+        if( $existe == 'FALTAN DATOS' ){
+            return 'FALTAN_DATOS_PARA_VERIFICAR_UNIQUE';
+        }elseif( is_array( $existe ) ){
+            return 'MOVIMIENTO_YA_REGISTRADO';
+        }
+        
+        // Verificación monto . Puede ser positivo o negativo, pero no cero.
+        if( !isset($params['monto']) || $params['monto']==0 ){
+            return 'SIN _MONTO';
+        }
+
+        return true;
+    }
+    
+    
+    
+    
+    
+    
+    /*
+     * INPUT
+     * $params  <array> 
+            alumnos_id
+            tipo_operacion           
+            fecha_operacion 
+            monto
+            comprobante
+            persona_en_caja     
+            observaciones
+            usuario_nombre      
+            fecha_hora_de_sistema
+     * 
+     * OUTPUT
+     *      TRUE si es viable,
+     *      <string> <array> con el/los ERROR/es si no lo es
+     */
+    public function verificacionCamposIndispensables( $params )
+    {
+        if( !isset( $params['tipo_operacion'] ) ){
+            return( array('ERROR_FORM_DATO_FALTA','tipo_operacion') );
+        }
+        
+        $camposIndispensables = 
+                $this->_getCamposIndispensables( $params['tipo_operacion'] );
+        if( !$camposIndispensables ){
+            return( 'ERROR_QUERY_RESULTADO_PARAMETROS_INCORRECTOS' );
+        }
+        foreach( $camposIndispensables as $campo ){
+            if( !isset( $params[ $campo ] ) ){
+                return( array( 'ERROR_FORM_DATO_FALTA', $campo) );
+            }
+        }
+        
+        // el ID DNI es válido?
+        if( !is_numeric($params['alumnos_id']) || $params['alumnos_id']<= 0 ){
+            return( array(  'ERROR_ALUMNO_ID', '"'.$params['alumnos_id'].'"') );
+        }
+        
+        return true;
+    }
+    
+    private function _getCamposIndispensables( $tipoOperacion )
+    {
+        return $this->_cuentaCorrienteColeccion->getCamposIndispensablesSegunTipoOperacion( $tipoOperacion );
+    }
+    
+    
+    private function _enviarMailSiHayInconsistencias( $alumnos_id )
+    {
+        $check = $this->_verificadorCuentaCorriente->getEstadoCuentaCorrienteAlumno( $alumnos_id );
+        if( !$check ){
+            // Por ahora enviaré un mail a webmaster
+            // para que la revise inmediatamente para poder encontrar la causa del error.
+            require_once 'default/models/MailToWebmaster.php';
+            $mailToWebmaster = new MailToWebmaster();
+            $mailToWebmaster->send("La cuenta de alumnos_id: $alumnos_id, presenta inconsistencias");
+        }
+    }
+    
+    
+    // OUTPUT array key "ERROR" => array values
+    private function _returnErrores( $errores )
+    {
+        $errores = ( is_array($errores) )? $errores :  array( $errores );
+        array_unshift( $errores,'ERROR_MOVIMIENTO_NO_PERMITIDO' );// coloco este mje como primero
+        return array( 'ERROR' => $errores );
+    }
+    
+    
+    
+    
+    
+    
+}

@@ -1,0 +1,207 @@
+<?php
+
+require_once 'cuentacorriente/logicalmodels/promociones/Promocion.php';
+require_once 'cuentacorriente/logicalmodels/promociones/PromocionInterfase.php';
+
+require_once 'admin/models/SedeCursoxanioAlumnoColeccion.php';
+require_once 'admin/models/ElementoValuadoAlumnoColeccion.php';
+require_once 'admin/logicalmodels/ServicioPlataformaAlumno.php';
+require_once 'default/models/Query.php';
+
+/**
+ * Description of PromocionMatricula
+ *
+ * @author mauricio
+ */
+class PromoPlataformaMesBonificado extends Promocion implements PromocionInterfase
+{
+    public $alumnos_id;
+    private $_serviciosPlataformaAlumno = []; // guarda por anio para evitar repetir busquedas
+    private $_preciosPlataforma = [];
+    
+    private $_SedeCursoxanioAlumnoColeccion;
+    private $_ElementoValuadoAlumnoColeccion;
+    
+    private $_motivo;
+    
+    const dia_a_partir_del_cual_se_le_bonifica_mes_siguiente = 15;
+    
+    public function __construct( $alumnos_id, $motivo=null ) 
+    {
+        $this->alumnos_id = $alumnos_id;        
+        
+        $this->_SedeCursoxanioAlumnoColeccion = new SedeCursoxanioAlumnoColeccion();
+        $this->_ElementoValuadoAlumnoColeccion = new ElementoValuadoAlumnoColeccion();
+        
+        $this->_motivo = ($motivo)? $motivo : $this->_ElementoValuadoAlumnoColeccion->getMotivos('promo_matricula');
+    }
+    
+    private function _getMotivosQueNoPermitenAcceso()
+    {
+        $anio = date('Y');
+        if( !key_exists($anio, $this->_serviciosPlataformaAlumno ) ){
+            $this->_serviciosPlataformaAlumno[$anio]= new ServicioPlataformaAlumno( $this->alumnos_id, $anio );
+        }
+        return $this->_serviciosPlataformaAlumno[$anio]->getMotivosQueNoPermitenAccesoAPlataforma();
+    }
+    
+       
+    /*
+     * $motivo='M' Promo Matricula
+     */
+    public function operarPromo()
+    {
+        if( !$this->_fechaValidaParaRecibirPromo() ){
+            return true;
+        }
+        
+        // Si los meses actuales no tienen acceso
+        if( $this->_aplicarALosMesesCalendario() ){
+            return true;
+        }
+        // Si encuentra meses siguienes sin acceso
+        if( $this->_aplicarALosMesesPosteriores() ){
+            return true;
+        }
+        return false;
+    }
+    
+    
+    /*
+     * Hasta 28 días antes de comenzar la cursada
+     */
+    private function _fechaValidaParaRecibirPromo()
+    {
+        // $cursadaData desde view_alumnos_por_sedes_cursos_y_planes
+        $cursadaData = $this->_SedeCursoxanioAlumnoColeccion
+                            ->getAlumnoUltimaCursadaValida( $this->alumnos_id );
+        $fechas = 'SELECT fecha_inicio FROM view_cursos_inicio_fin '
+                . 'WHERE sedes_cursosxanio_id = '.$cursadaData['sedes_cursosxanio_id'];
+        $Query = new Query();
+        $resultado = $Query->ejecutarQuery( $fechas );
+        if( !$resultado || !isset($resultado[0]['fecha_inicio']) ){
+            return false;
+        }
+        $diasParaComenzar = cantidadDiasEntre( date('Y-m-d'), $resultado[0]['fecha_inicio'] );
+        if( $diasParaComenzar <= 28 ){
+            return false;
+        }
+        return true;
+    }
+    
+    /*
+     * Aunque la class es MesBonificado,
+     * la bonificación podría caer en más de un mes,
+     * si el mes actual ya está muy avanzado, entonces se aplica también al mes próximo.
+     * ( Aunque a la persona simplemente se le dice que tiene un mes a partir de hoy
+     * y se dará cuenta que tiene más acceso del previsto solo si revisa esos días hasta
+     * que termine el mes )
+     * OUTPUT 
+     * <boolean>    TRUE    Si pudo aplicar la promo
+     *              FALSE   si no le aplico promo
+     */
+    private function _aplicarALosMesesCalendario()
+    {
+        $mesesCalendario = $this->_mesesProximosAHoy();
+        return $this->_aplicarPromo( $mesesCalendario, $abortarAlPrimero=false );
+    }
+    private function _aplicarALosMesesPosteriores()
+    {
+        $mesesPosteriores = $this->_mesesPosterioresAHoy();
+        return $this-> _aplicarPromo( $mesesPosteriores, $abortarAlPrimero=true );
+    }
+    
+    private function _aplicarPromo( $mesesAnio, $abortarAlPrimero=true )
+    {
+        $aplicada = false;
+        foreach( $mesesAnio as $anioMes ){
+            $anio = substr($anioMes,0,4);
+            $mes = substr($anioMes,5,2);
+
+            if( !key_exists($anio,$this->_serviciosPlataformaAlumno ) ){
+                $this->_serviciosPlataformaAlumno[$anio]=new ServicioPlataformaAlumno( $this->alumnos_id, $anio );
+                if( !$this->_serviciosPlataformaAlumno[$anio] || 
+                    !$this->_serviciosPlataformaAlumno[$anio]->tieneProfesoradoAsociado() ){
+                    return false;
+                }
+                $this->_preciosPlataforma[$anio]= $this->_serviciosPlataformaAlumno[$anio]->getDataMesAMes();
+            }
+            $mesAPromocionarData = $this->_getElementoValuadoData( $anio, $mes );
+            
+            
+            // Check, si ya tiene aplicada la promo.
+            if( $abortarAlPrimero && 
+                // $mesAPromocionarData['valor_final']==0 && 
+                $mesAPromocionarData['valor_modificado_motivo'] == $this->_motivo
+            ){
+                return true; // ya la tenía aplicada
+            }
+            
+            if( !$mesAPromocionarData || 
+                // pregunto si tiene valor 0 con acceso
+                ($mesAPromocionarData['valor_final']==0 &&
+                !in_array($mesAPromocionarData['valor_modificado_motivo'], $this->_getMotivosQueNoPermitenAcceso()) )
+            ){
+                continue;
+            }
+            
+            $ServicioPlataformaAlumno = $this->_serviciosPlataformaAlumno[$anio];
+            $ServicioPlataformaAlumno->promocionarMeses( $this->alumnos_id, [$anioMes], $this->_motivo );
+            if( $abortarAlPrimero ){
+                $aplicada = true;
+                break;
+            }
+        }
+        return $aplicada;
+    }
+    
+    
+    private function _getElementoValuadoData( $anio, $mes )
+    {
+        foreach( $this->_preciosPlataforma[$anio] as $values ){
+            if( substr($values['fecha_inicio_calculado'],0,7) == "$anio-$mes" ){
+                return $values;
+            }
+        }
+        return false;
+    }
+
+    /*
+     * Busca según hoy, a que mes o meses debería aplicarse la promo,
+     * sabiendo que si el día de mes actual ya es muy avanzado,
+     * deberá brindarse como promo el mes actual partido, más el mes siguiente entero.
+     * 
+     * OUTPUT
+     * <array> anio.mes, anio.mes  [ 2021-11, 2021-12 ]
+     */
+    private function _mesesProximosAHoy()
+    {
+        // Determino los meses que serán promocionados ( uno o dos )
+        $diaHoy = (int) date('d');
+        $mesHoy = (int) date('m');
+        $anioHoy = (int) date('Y');
+        $anioMesHoy = date('Y-m');
+        $anioMesProximo = ($mesHoy==12)? ($anioHoy+1).'-01' : ("$anioHoy-".str_pad($mesHoy+1,2,'0',STR_PAD_LEFT));
+        //
+        $mesesAPromocionar = ( $diaHoy < self::dia_a_partir_del_cual_se_le_bonifica_mes_siguiente )? [$anioMesHoy] : [$anioMesHoy,$anioMesProximo];
+        return $mesesAPromocionar;
+    }
+    
+    private function _mesesPosterioresAHoy()
+    {
+        $mesesCalendarioHoy = $this->_mesesProximosAHoy();
+        $anioMes = end( $mesesCalendarioHoy );
+        $anio = substr($anioMes,0,4);
+        $mes = substr($anioMes,5,2);
+        
+        // tomaré 18 meses posteriores
+        $posteriores = [];
+        for($i=1;$i<18;$i++){
+            $anio= ( $mes==12 )? $anio+1 : $anio;
+            $mes = ( $mes==12 )? '01' : str_pad( ((int)$mes +1 ), 2, '0', STR_PAD_LEFT );
+            $posteriores[]="$anio-$mes";
+        }
+        return $posteriores;
+    }
+        
+}

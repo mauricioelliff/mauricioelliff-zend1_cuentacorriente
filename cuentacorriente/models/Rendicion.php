@@ -1,0 +1,463 @@
+<?php
+
+/*
+ * Una Rendición es la que efectuan los coordinadores a Sede Central.
+ * 
+ * 
+ */
+
+if( !defined('__GESTION_ESTA_MISFUNCIONES_CARGADA__') ){
+    require_once MILIBRARY_PATH.'misFunciones.php';
+}
+
+require_once 'admin/logicalmodels/ElementosValuadosDeFormacion.php';
+require_once 'admin/logicalmodels/ElementosValuadosExtras.php';
+
+class Rendicion 
+{
+    private $_id;       
+    private $_sedes_id;
+    // private $_grupo_elementosvaluados; // CUotas, DEX examenes, PLAtaforma
+    private $_fecha_desde;
+    private $_fecha_hasta;
+    
+    
+    // #########################################################################
+    // AGREGAR AQUÍ LOS NUEVOS CONCEPTOS DE FORMACION O NUEVOS OTROS CONCEPTOS:
+    private $_mat;
+    private $_cu;
+    private $_ex;
+    private $_pla;
+    private $_reimat;
+    private $_reicu;
+    //
+    // private $_formacion ;
+    private $_plataforma_practicantes ;
+    private $_clases ;
+    private $_dharma ;
+    private $_mudras ;
+    private $_detox ;
+    private $_comunicacion ;
+    private $_emociones ;
+    private $_mantras_1 ;
+    private $_mantras_2 ;
+    private $_acondicionamiento ;
+    private $_embarazadas ;
+    private $_asana ;
+    private $_invertidas_estudiantes ;
+    private $_invertidas_no_estudiantes ;
+    private $_biomecanica ;
+    private $_hotel_y_comida ;
+    private $_hotel_sincomida ;
+    private $_hotel_todo_incluido ;
+    private $_cabana_y_comida ;
+    private $_cabana_sincomida ;
+    private $_cabanas_todo_incluido ;
+    private $_casilla ;
+    private $_solo_actividades ;
+    private $_solo_comida ;
+    private $_matsyendranath_meditacion;
+    private $_matsyendranath_rituales;
+    private $_matsyendranath_mantras;
+    private $_voz;
+    private $_vinyasa;
+   
+    // #########################################################################
+    
+    
+    
+    private $_sede_rindio_a_central;        // flag
+    private $_sede_rindio_a_formador;       // flag
+    private $_sede_rindio_a_coordinador;    // flag    
+    private $_central_recibio_rendicion;    // flag
+    private $_central_reviso_rendicion;     // flag
+    private $_fecha_hora_de_creacion; 
+    private $_fecha_hora_de_rendicion_a_central;
+    
+    public function __construct( array $valores )
+    {
+        $this->_id              = isset( $valores['id'] )? $valores['id'] : null;
+        $this->_sedes_id        = isset( $valores['sedes_id'] )? $valores['sedes_id'] : null;       
+        // $this->_grupo_elementosvaluados = isset( $valores['grupo_elementosvaluados'] )? $valores['grupo_elementosvaluados'] : 'CU';       
+        $this->_fecha_desde     = isset( $valores['fecha_desde'] )? $valores['fecha_desde'] : null; // datetimeMicroseconds();  
+        $this->_fecha_hasta     = isset( $valores['fecha_hasta'] )? $valores['fecha_hasta'] : datetimeMicroseconds();  
+        
+        
+        // #####################################################################
+        // Campos que habrá que agregar a la tabla, 
+        // a medida que se vayan incorporando al sistema.
+        // Queda pendiente refactorizar este metodo de trabajo, y crear una nueva tabla,
+        // donde se asiente todo el detalle exclusivamente de totales,
+        // con un campo de código variable que permita evitar así 
+        // modificar estructura de tablas.
+        // 
+        // Totales de formación:
+        foreach( ElementosValuadosDeFormacion::conceptos() as $key => $desc ){
+            $name = "_$key";
+            $this->$name = key_exists( $key, $valores )? $valores[$key] : null;
+        }
+        // Totales de otros conceptos:
+        foreach( ElementosValuadosExtras::otrosConceptosEnModoUrl() as $key => $desc ){
+            if( $key == 'formacion' ) continue;
+            $name = "_$key";
+            $this->$name = key_exists( $key, $valores )? $valores[$key] : null;
+        }
+        // #####################################################################
+        
+        //
+        $this->_sede_rindio_a_central       = isset( $valores['sede_rindio_a_central'] )? $valores['sede_rindio_a_central'] : 0;
+        $this->_sede_rindio_a_formador      = isset( $valores['sede_rindio_a_formador'] )? $valores['sede_rindio_a_formador'] : 0;
+        $this->_sede_rindio_a_coordinador   = isset( $valores['sede_rindio_a_coordinador'] )? $valores['sede_rindio_a_coordinador'] : 0;
+        $this->_central_recibio_rendicion   = isset( $valores['central_recibio_rendicion'] )? $valores['central_recibio_rendicion'] : 0;
+        $this->_central_reviso_rendicion    = isset( $valores['central_reviso_rendicion'] )? $valores['central_reviso_rendicion'] : 0;
+        $this->_fecha_hora_de_creacion            = isset( $valores['fecha_hora_de_creacion'] )? $valores['fecha_hora_de_creacion'] : datetimeMicroseconds(); //date('Y-m-d H:i:s')
+        $this->_fecha_hora_de_rendicion_a_central = isset( $valores['fecha_hora_de_rendicion_a_central'] )? $valores['fecha_hora_de_rendicion_a_central'] : null;
+    }
+    
+    
+    public function getId()
+    {
+        return $this->_id;
+    }
+
+    public function getSedesId()
+    {
+        return $this->_sedes_id;
+    }
+
+    public function getFechaDesde()
+    {
+        return $this->_fecha_desde;
+    }
+
+    public function getFechaHasta()
+    {
+        return $this->_fecha_hasta;
+    }
+    
+    public function setFechaHasta($fecha)
+    {
+        $this->_fecha_hasta = $fecha;
+    }
+    
+    
+    /* #########################################################################
+        // Totales de formación:
+        'mat'   => 'Matriculas',
+        'cu'    => 'Cuotas',
+        'ex'    => 'Examenes',
+        'pla'   => 'Plataforma',
+        'reimat'=> 'Reiki Matriculas',
+        'reicu' => 'Reiki Cuotas',
+     */
+    // # Gets:
+    public function getMat(){
+        return $this->_mat;
+    }    
+    public function getCu(){
+        return $this->_cu;
+    }    
+    public function getEx(){
+        return $this->_ex;
+    }    
+    public function getPla(){
+        return $this->_pla;
+    }    
+    public function getReimat(){
+        return $this->_reimat;
+    }    
+    public function getReicu(){
+        return $this->_reicu;
+    }    
+    
+    // # Sets:
+    public function setMat($valor){
+        $this->_mat = $valor;
+    }    
+    public function setCu($valor){
+        $this->_cu = $valor;
+    }    
+    public function setEx($valor){
+        $this->_ex = $valor;
+    }    
+    public function setPla($valor){
+        $this->_pla = $valor;
+    }    
+    public function setReimat($valor){
+        $this->_reimat = $valor;
+    }    
+    public function setReicu($valor){
+        $this->_reicu = $valor;
+    }    
+    //
+    /* Totales de otros conceptos:
+        'formacion'     => 'A cuenta formación',// no se muestra en los totales de otros conceptos
+        'plataforma_practicantes'    => 'Suscripción Plataforma(practicantes)',
+        'clases'        => 'Clases presenciales',
+        'dharma'        => 'Taller Introducción al Dharma',
+        'mudras'        => 'Taller Introducción Mudras',
+        'detox'         => 'Taller Alimentación Detox',
+        'comunicacion'  => 'Taller Comunicación y Estrés',
+        'emociones'     => 'Taller Emociones y Estrés',
+        'mantras 1'     => 'Taller Mantras 1',
+        'mantras 2'     => 'Taller Mantras 2',
+        'acondicionamiento' => 'Taller Acondicionamiento Físico',
+        'embarazadas'   => 'Taller Embarazadas',
+        'asana'         => 'Taller Virtudes del Asana',
+        'invertidas, estudiantes'    => 'Taller de Invertidas, estudiantes', // $1500 
+        'invertidas, no estudiantes' => 'Taller de Invertidas, no estudiantes', // $2300 
+        'biomecanica'   => 'Taller Anatomía y Biomecánica',
+        'hotel y comida'        => 'Retiro: actividades, hotel y comidas',
+        'hotel, sincomida'      => 'Retiro: actividades, hotel, sin comidas',
+        'hotel todo incluido'   => 'Retiro: hotel todo incluido',
+        'cabana y comida'       => 'Retiro: actividades, cabaña y comidas',
+        'cabana, sincomida'     => 'Retiro: actividades, cabaña, sin comidas',
+        'cabana todo incluido'  => 'Retiro: cabaña todo incluido',
+        'casilla'               => 'Retiro: actividades, casillas y comidas',
+        'solo actividades'      => 'Retiro: solo actividades',
+        'solo comida'           => 'Retiro: solo comidas',
+     */
+    // #Gets:
+    //public function getFormacion(){
+    //    return $this->_formacion;
+    //}    
+    public function getPlataforma_practicantes(){
+        return $this->_plataforma_practicantes;
+    }    
+    public function getClases(){
+        return $this->_clases;
+    }    
+    public function getDharma(){
+        return $this->_dharma;
+    }    
+    public function getMudras(){
+        return $this->_mudras;
+    }    
+    public function getDetox(){
+        return $this->_detox;
+    }    
+    public function getComunicacion(){
+        return $this->_comunicacion;
+    }    
+    public function getEmociones(){
+        return $this->_emociones;
+    }    
+    public function getMantras_1(){
+        return $this->_mantras_1;
+    }    
+    public function getMantras_2(){
+        return $this->_mantras_2;
+    }    
+    public function getAcondicionamiento(){
+        return $this->_acondicionamiento;
+    }    
+    public function getEmbarazadas(){
+        return $this->_embarazadas;
+    }    
+    public function getAsana(){
+        return $this->_asana;
+    }    
+    public function getInvertidas_estudiantes(){
+        return $this->_invertidas_estudiantes;
+    }    
+    public function getInvertidas_no_estudiantes(){
+        return $this->_invertidas_no_estudiantes;
+    }    
+    public function getBiomecanica(){
+        return $this->_biomecanica;
+    }    
+    public function getHotel_y_comida(){
+        return $this->_hotel_y_comida;
+    }    
+    public function getHotel_sincomida(){
+        return $this->_hotel_sincomida;
+    }    
+    public function getHotel_todo_incluido(){
+        return $this->_hotel_todo_incluido;
+    }    
+    public function getCabana_y_comida(){
+        return $this->_cabana_y_comida;
+    }    
+    public function getCabana_sincomida(){
+        return $this->_cabana_sincomida;
+    }    
+    public function getCabanas_todo_incluido(){
+        return $this->_cabanas_todo_incluido;
+    }    
+    public function getCasilla(){
+        return $this->_casilla;
+    }    
+    public function getSolo_actividades(){
+        return $this->_solo_actividades;
+    }    
+    public function getSolo_comida(){
+        return $this->_solo_comida;
+    }    
+    public function getMatsyendranath_meditacion(){
+        return $this->_matsyendranath_meditacion;
+    }    
+    public function getMatsyendranath_rituales(){
+        return $this->_matsyendranath_rituales;
+    }    
+    public function getMatsyendranath_mantras(){
+        return $this->_matsyendranath_mantras;
+    }    
+    public function getVoz(){
+        return $this->_voz;
+    }    
+    public function getVinyasa(){
+        return $this->_vinyasa;
+    }    
+    
+    // #Sets:
+    //public function setFormacion($valor){
+    //    $this->_formacion = $valor;
+    //}    
+    public function setPlataforma_practicantes($valor){
+        $this->_plataforma_practicantes = $valor;
+    }    
+    public function setClases($valor){
+        $this->_clases = $valor;
+    }    
+    public function setDharma($valor){
+        $this->_dharma = $valor;
+    }    
+    public function setMudras($valor){
+        $this->_mudras = $valor;
+    }    
+    public function setDetox($valor){
+        $this->_detox = $valor;
+    }    
+    public function setComunicacion($valor){
+        $this->_comunicacion = $valor;
+    }    
+    public function setEmociones($valor){
+        $this->_emociones = $valor;
+    }    
+    public function setMantras_1($valor){
+        $this->_mantras_1 = $valor;
+    }    
+    public function setMantras_2($valor){
+        $this->_mantras_2 = $valor;
+    }    
+    public function setAcondicionamiento($valor){
+        $this->_acondicionamiento = $valor;
+    }    
+    public function setEmbarazadas($valor){
+        $this->_embarazadas = $valor;
+    }    
+    public function setAsana($valor){
+        $this->_asana = $valor;
+    }    
+    public function setInvertidas_estudiantes($valor){
+        $this->_invertidas_estudiantes = $valor;
+    }    
+    public function setInvertidas_no_estudiantes($valor){
+        $this->_invertidas_no_estudiantes = $valor;
+    }    
+    public function setBiomecanica($valor){
+        $this->_biomecanica = $valor;
+    }    
+    public function setHotel_y_comida($valor){
+        $this->_hotel_y_comida = $valor;
+    }    
+    public function setHotel_sincomida($valor){
+        $this->_hotel_sincomida = $valor;
+    }    
+    public function setHotel_todo_incluido($valor){
+        $this->_hotel_todo_incluido = $valor;
+    }    
+    public function setCabana_y_comida($valor){
+        $this->_cabana_y_comida = $valor;
+    }    
+    public function setCabana_sincomida($valor){
+        $this->_cabana_sincomida = $valor;
+    }    
+    public function setCabanas_todo_incluido($valor){
+        $this->_cabanas_todo_incluido = $valor;
+    }    
+    public function setCasilla($valor){
+        $this->_casilla = $valor;
+    }    
+    public function setSolo_actividades($valor){
+        $this->_solo_actividades = $valor;
+    }    
+    public function setSolo_comida($valor){
+        $this->_solo_comida = $valor;
+    }    
+    public function setMatsyendranath_meditacion($valor){
+        $this->_matsyendranath_meditacion = $valor;
+    }    
+    public function setMatsyendranath_rituales($valor){
+        $this->_matsyendranath_rituales = $valor;
+    }    
+    public function setMatsyendranath_mantras($valor){
+        $this->_matsyendranath_mantras = $valor;
+    }    
+    public function setVoz($valor){
+        $this->_voz = $valor;;
+    }    
+    public function setVinyasa($valor){
+        $this->_vinyasa = $valor;;
+    }    
+    
+    // #########################################################################
+    
+    
+
+    public function sedeRindioACentral(){
+        return $this->_sede_rindio_a_central;
+    }
+    public function sedeRindioAFormador(){
+        return $this->_sede_rindio_a_formador;
+    }
+    public function sedeRindioACoordinador(){
+        return $this->_sede_rindio_a_coordinador;
+    }
+    public function centralRecibioRendicion(){
+        return $this->_central_recibio_rendicion;
+    }
+    public function centralRevisoRendicion(){
+        return $this->_central_reviso_rendicion;
+    }
+
+    public function getFechaHoraDeCreacion()
+    {
+        return $this->_fecha_hora_de_creacion;
+    }
+
+    public function getFechaHoraDeRendicionACentral()
+    {
+        return $this->_fecha_hora_de_rendicion_a_central;
+    }
+    
+    
+    public function sumar1Milisegundo( $fecha=null )
+    {
+        $fecha = ( is_null($fecha) )? $this->getFechaHasta() : $fecha;
+        $date = substr( $fecha, 0, 10 );
+        $microtime = substr( $fecha, -6 );
+        $microtime2 = $microtime+1;
+        return substr( $fecha, 0, -6 ).$microtime2;
+    }
+
+
+
+     /*
+     * Convierte el objeto en array.
+     * Debe hacerse desde la propia clase pues se trata de variables privadas.
+     */
+    public function convertirEnArray()
+    {
+        //return get_object_vars($this); //esto lo devuelve con los underscord
+        $miIterator=array();
+        foreach($this as $key => $value) {
+            $key=substr($key,1); //con esto le quito el underscord primero.
+            $miIterator[$key]=$value;
+        }
+        return $miIterator;
+    }
+
+
+
+}

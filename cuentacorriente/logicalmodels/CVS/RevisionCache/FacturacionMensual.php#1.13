@@ -1,0 +1,591 @@
+<?php
+/*
+ * COBRO:   Item que genera una deuda al alumno.
+ * 
+ * 
+ * Este proceso se encarga de incorporar a Cuentas Corrientes
+ * aquellos Elementos Valuados que entran en fecha de cobro.
+ * 
+ * Proceso:
+ *      generarFacturacionMensual(  $fechaDeInicioDeCobros=false, 
+ *                                  $fechaDeFinDeCobros=false, 
+ *                                  $sedeIdAProcesar=0 
+ *                              )
+ * 
+ * ATENCIÓN:
+ * ESTE PROCESO SE DISPARA EN DISTINTAS OPORTUNIDADES, Y NO SOLO ANTE EL 
+ * DISPARO DE LA API DE GENERACIÓN DE DEUDAS.
+ * POR EJEMPLO, LA INSCRIPCIÓN O MATRICULACIÓN DE UN ALUMNO,
+ * INVOCA LA GENERACIÓN DE LA FACTURACIÓN.
+ * 
+ * 
+ * INPUT
+ * 
+ * 
+ * LOG
+ * la fecha de conclusión, es INCLUIDA dentro del proceso.
+ * Por lo que al iniciar, suma 1 día a la fecha última procesada.
+ * 
+ */
+require_once 'extensiones/generales/ClaseBaseAbstracta.php';
+
+require_once 'admin/models/SedeColeccion.php';
+require_once 'admin/models/SedeCursoxanioAlumnoColeccion.php';
+
+require_once 'cuentacorriente/models/ViewsContableColeccion.php';
+require_once 'cuentacorriente/models/CuentaCorrienteColeccion.php';
+
+// require_once 'default/models/Query.php';
+
+class FacturacionMensual extends ClaseBaseAbstracta
+{
+    
+    private $_pathArchivosTxtDelProceso;
+    private $_fileConUltimaFechaProcesada = 'batch_cobros_ultima_fecha_procesada.txt';
+    private $_fileLogProceso = 'batch_cobros_log.txt';
+    private $_fileLogHandle;
+    
+    private $_tipoOperacion;
+    private $_prefijoFA;
+    
+    private $cuentaCorrienteColeccion;
+    private $sedeCursoxanioAlumnoColeccion;
+    private $viewsColeccion;
+    
+    //private $_identificadorNombreProcesosBatch = 'BATCH';    
+
+    private $_sedes;
+    
+    public function __construct()
+    {
+        parent::__construct();
+        
+        ini_set('max_execution_time', 1800); // 1800 segundos . 30 min
+        // y como he visto que no me ha funcionado 1 vez en test, agrego la ste. linea:
+        set_time_limit ( 1800 ); // 1800 segundos . Para tiempo ilimitado: set_time_limit (0);
+        
+        $this->cuentaCorrienteColeccion = new CuentaCorrienteColeccion();
+        $this->sedeCursoxanioAlumnoColeccion = new SedeCursoxanioAlumnoColeccion();
+        $this->viewsColeccion = new ViewsContableColeccion();
+        
+        $this->_pathArchivosTxtDelProceso = __GESTION_DIR_ABSOLUTO_AL_PROYECTO__.'public/logs/';
+                
+        // array con las ultimas fechas cobradas encontradas en cada sede, 
+        // segun la tabla de cuentas corrientes
+        //$this->ultimasFechasCobradasPorSede = $this->_getUltimasFechasCobradasPorSede();
+        
+        $this->_tipoOperacion = 'FACTURA_AUTOMATICA';
+        $motivos = $this->cuentaCorrienteColeccion->getMotivoDominioSegunTipoOperacion();
+        if( !key_exists( $this->_tipoOperacion, $motivos ) ){
+            die('error en FacturacionMensual.php, init(), no existe el motivo default');
+        }
+        
+        $this->_prefijoFA = $this->cuentaCorrienteColeccion->getPrefijosParaComprobantes( $this->_tipoOperacion );
+
+        
+        $sedeColeccion = new SedeColeccion();
+        $this->_sedes = $sedeColeccion->obtenerGeneral( null, 'id_sede_centro', 'Sede' ); 
+    }
+    
+    
+    /*
+     * FUNCION PRINCIPAL PARA CORRIDAS BATCH
+     * 
+     * Inserta en la tabla de Cuentas Corrientes,
+     * los cobros que deben hacerse al alumno/s
+     * de acuerdo a la fecha a procesar
+     * y los Elementos Valuados que están en dicho rango de fechas.
+     * 
+     * MUY IMPORTANTE:
+     * Idempotencia:  Para evitar duplicacion de cobros en caso de 
+     * necesitar repetir el proceso,
+     * Cuentas Corrientes define como control de unique de estos movimientos
+     * a estos campos: alumnos_id, tipo_operacion, motivo.
+     * 
+     * INPUT
+     *  $fechaDeInicioDeCobros  Default: Ultima fecha procesada + 1 día. Formato Y-m-d
+     *  $fechaDeFinDeCobros     Default: HOY    Formato Y-m-d
+     *  $sedeIdAProcesar        Default: 0 Todas las sedes
+     *                                  ( utilizado en el filtro para busqueda de alumnos)
+     * 
+     * OUTPUT
+     *      FALSE   Fechas incorrectas o fecha tope alcanzada
+     *      TRUE    nada por cobrar
+     *      string  archivo log
+     * 
+     */
+    public function generarFacturacionMensual( 
+                        $fechaDeInicioDeCobros=false, 
+                        $fechaDeFinDeCobros=false, 
+                        $sedeIdAProcesar=0,
+                        $logSiYaEstabaCobrado=true,
+                        $alumnosId=false
+                    )
+    {
+        //$this->flashMessenger->clearMessages();
+        $this->_logIniciar();
+        
+        $fechas = $this->getFechasDeCobro( $fechaDeInicioDeCobros, $fechaDeFinDeCobros );
+        if( is_array( $fechas ) ){
+            $fechaDeInicioDeCobros = $fechas['desde'];
+            $fechaDeFinDeCobros = $fechas['hasta'];
+            $this->_logFechasEjecutando( $fechaDeInicioDeCobros, $fechaDeFinDeCobros );        
+        }else{
+            $this->_logEscribir( "\n Fechas incorrectas o fecha tope alcanzada. $fechas"  );
+            $this->_logCerrar();
+            return false;
+        }
+        
+        
+        $aCobrar = $this->viewsColeccion->getAlumnosValores( $fechaDeInicioDeCobros, $fechaDeFinDeCobros, $sedeIdAProcesar );
+        /*
+        ver($aCobrar,'$aCobrar');
+            array de arrays como este:
+            [33935839] => array(4) {                alumnos_id
+              [2192] => array(22) {                     evscxa_id
+                ["sedes_id"] => string(1) "3"
+                ["anio"] => string(4) "2018"
+                ["sedes_cursosxanio_id"] => string(3) "222"
+                ["scxaa_id"] => string(4) "2606"
+                ["nombre_humano"] => string(11) "Profesorado de Nathayoga Nivel 1"
+                ["nombre_computacional"] => string(11) "profesorado"
+                ["clasificador_nombre"] => string(5) "nivel"
+                ["clasificador_valor"] => string(1) "1"
+                ["cursos_id"] => string(1) "3"
+                ["evscxa_id"] => string(4) "2192"
+                ["ev_id"] => string(1) "1"
+                ["ev_abreviatura"] => string(3) "MAT"
+                ["eva_id"] => NULL
+                ["fecha_inicio_calculado"] => string(10) "2018-03-01"
+                ["evscxa_valor"] => string(4) "1200"
+                ["alumnos_id"] => string(8) "33935839"
+                ["apellido"] => string(7) "Alvarez"
+                ["nombres"] => string(14) "Natalia Andrea"
+                ["nombre_espiritual"] => NULL
+                ["valor_modificado"] => NULL
+                ["valor_modificado_motivo"] => NULL
+                ["valor_final_calculado"] => string(4) "1200"
+                ["fecha_finalizo"] => string(10) "2018-06-27"
+              }
+         */
+        
+        // Si no hay nada a cobrar, no es error.
+        if( !$aCobrar ){
+            $this->_logCobro( 'nada por cobrar' );
+            $this->_logCerrar();
+            return true;
+        }
+        
+        $sedesItemsCobrados = array(); // por año por sede
+        
+        $cobrosNoAplicables = 0;    // contador cobros ya realizados, u otras razones.
+        $cobrosAplicados = 0;       // items creados en la tabla
+        $yaRegistrados = 0;         // contador de insert cancelados prque ya existía
+
+        
+        $permisosDelUsuario = $this->variablesEnSessionRecuperar('permisosDelUsuario' );
+        
+        // LOOP DE COBRO
+        foreach( $aCobrar as $alumnos_id => $cobrosAlAlumno ){
+            if( $alumnosId && $alumnosId<>$alumnos_id ){
+                continue;
+            }
+            foreach( $cobrosAlAlumno as $evscxa_id => $cobrar ){
+
+                $mov = array(
+                        'alumnos_id'        => $cobrar['alumnos_id'],
+                        'tipo_operacion'    => $this->_tipoOperacion,
+                        // El motivo es MUY IMPORTANTE, ya que por ahora, donde aun hay muchos movimientos
+                        // sin id, es esta descripción la que me sirve para encontrar el mismo item
+                        // entre distintos movimientos.
+                        'motivo'            =>  $this->cuentaCorrienteColeccion
+                                                    ->getMotivoNormalizado( $cobrar['nombre_humano'],
+                                                                            $cobrar['nombre_computacional'],
+                                                                            $cobrar['clasificador_nombre'],
+                                                                            $cobrar['clasificador_valor'],
+                                                                            $cobrar['anio'],
+                                                                            $cobrar['ev_abreviatura']
+                                                                        ),
+                        'fecha_operacion'   => fechaEnFormatoYmd( $cobrar['fecha_inicio_calculado'], $separadorOutput='-' ),
+                        'monto'             => ( ($cobrar['valor_final_calculado'])>0)? ($cobrar['valor_final_calculado']*(-1)) : $cobrar['valor_final_calculado'] ,
+                        'comprobante_sede'  => $cobrar['sedes_id'],
+                        'comprobante_tipo'  => 'automatico', // manual o automatico
+                        'comprobante'       => $this->_prefijoFA,
+                        'persona_en_caja'   => 'proceso_automatico',
+                        'usuario_nombre'    => 'proceso_automatico',    // usuario log
+                        //'observaciones'   => null,
+                        //'fecha_hora_de_sistema'  => '',
+                        'permisosDelUsuario'=> $permisosDelUsuario,
+                        'evscxa_id'         => $cobrar['evscxa_id'],
+                        'sedes_id'          => $cobrar['sedes_id']
+                        );
+                
+                $alta = $this->cuentaCorrienteColeccion->registrarMovimiento( $mov );
+                if( $alta === TRUE ){
+                    // ok
+                }else{ // if( $alta === FALSE || is_array($alta) ){
+                    $cobrosNoAplicables++;
+                    if( is_array($alta) && 
+                        isset($alta['ERROR'] ) &&     
+                            in_array( 'MOVIMIENTO_YA_REGISTRADO', $alta['ERROR'] ) ){
+                        $yaRegistrados++;
+                        if( !$logSiYaEstabaCobrado ){
+                            continue;
+                        }
+                    }
+                    $this->_logCobro( 'cobro_no_realizado', $mov );
+                    $this->_logEscribir( "\n Razón:".(is_array($alta['ERROR'])? verArray($alta['ERROR']) : 'error al grabar en tabla' ) );
+                    
+                    continue;
+                }
+
+                // Llevo cuenta de las sedes e items cobrados en el array $sedesItemsCobrados
+                if( !key_exists( $cobrar['anio'], $sedesItemsCobrados) ){
+                    $sedesItemsCobrados[ $cobrar['anio'] ] = array();
+                }
+                if( !key_exists( $cobrar['sedes_id'], $sedesItemsCobrados[$cobrar['anio']] ) ){
+                    $sedesItemsCobrados[$cobrar['anio']][ $cobrar['sedes_id'] ] = array();
+                }
+                if( !in_array( $cobrar['ev_abreviatura'], $sedesItemsCobrados[$cobrar['anio']][ $cobrar['sedes_id'] ] ) ){
+                    $sedesItemsCobrados[$cobrar['anio']][ $cobrar['sedes_id'] ][] = $cobrar['ev_abreviatura'];
+                }
+
+                $cobrosAplicados++;
+                //if( $cobrosAplicados > 0 ){ break; } // debug. Contdador que me permite frenar la corrida.
+                
+                
+            } // endforeach alumno
+        } // endforeach
+        
+        $this->_distribuirCreditos( $sedeIdAProcesar );
+
+        $this->_actualizarFechaUltimaProcesada( $fechaDeFinDeCobros );
+
+        $this->_logCerrar( $sedesItemsCobrados, $cobrosAplicados, $cobrosNoAplicables, $yaRegistrados );
+        
+        return file_get_contents( $this->_pathArchivosTxtDelProceso.$this->_fileLogProceso );
+    }
+    
+    // distribución de coberturas
+    private function _distribuirCreditos( $sedeIdAProcesar = 0 )
+    {
+        // distribución de créditos, trabaja por sede.
+        if( $sedeIdAProcesar != 0 ){
+            $sedesIds = array( $sedeIdAProcesar );
+        }else{
+            $sedesIds = array_keys( $this->_sedes );
+        }
+        
+        $resultado = array();
+        foreach( $sedesIds as $sedeId ){
+            $alumnosIdsDeLaSede = $this->sedeCursoxanioAlumnoColeccion
+                                            ->getAlumnosDeLaSede( $sedeId );
+            $resultado[$sedeId]=$alumnosIdsDeLaSede;
+            
+            $funcionesSobreEVAs = new FuncionesSobreEVAs( $sedeId );
+            $registrador = new RegistradorDeMovimiento( $this->cuentaCorrienteColeccion, $funcionesSobreEVAs );
+            
+            foreach( $alumnosIdsDeLaSede as $alumnos_id ){
+                $registrador->distribuirCreditos( $alumnos_id );
+            }
+        }
+        return $resultado;
+    }
+    
+    /*
+     * Dada 2 fechas, las devuelve con sus valores correctos, en un array
+     * Si las fechas son erroneas, solo devuelve un string
+     * 
+     * OUTPUT
+     * <array> para TRUE,   
+     * <string> para FALSE
+     */
+    public function getFechasDeCobro( $fechaDeInicioDeCobros, $fechaDeFinDeCobros )
+    {
+        $fechaDeInicioDeCobros = ( $fechaDeInicioDeCobros )? $fechaDeInicioDeCobros : $this->getFechaInicioDeCobros();
+        if( !$fechaDeInicioDeCobros ){
+            $this->addColeccionMensajes( 'ERROR_no hay fecha inicio de cobro' );
+            return false;
+        }
+        
+        $fechaDeFinDeCobros = ( $fechaDeFinDeCobros )? $fechaDeFinDeCobros : date('Y-m-d') ;
+
+        // verificación de formatos de fecha correctos
+        if( !validateDate( $fechaDeInicioDeCobros, 'Y-m-d') ||
+            !validateDate( $fechaDeFinDeCobros, 'Y-m-d')    ||
+            $fechaDeInicioDeCobros > $fechaDeFinDeCobros ){
+            
+            // dejo la fecha de inicio, con su valor original:
+            $fechaDeInicioDeCobros = restaDias($fechaDeInicioDeCobros,1);
+            $this->addColeccionMensajes( 'ERROR_FECHAS_INCORRECTAS_PARA_FACTURACION : '.$fechaDeInicioDeCobros.', '.$fechaDeFinDeCobros );
+            return $fechaDeInicioDeCobros.', '.$fechaDeFinDeCobros; //false;
+        }
+
+        // Tampoco la fecha final, no puede ser mayor que la fecha DE HOY
+        $fechaDeFinDeCobros = ( $fechaDeFinDeCobros <= date('Y-m-d') )? $fechaDeFinDeCobros : date('Y-m-d') ;
+        
+        return array('desde' => $fechaDeInicioDeCobros, 'hasta' => $fechaDeFinDeCobros );
+    }
+    
+    
+    /*
+     * Devuelve la fecha en que debe comenzar el proceso.
+     * Antes la levantaba desde un archivo que guardaba la última fecha procesada.
+     * Pero he optado por iniciar siempre desde el arranque del año.
+     */
+    public function getFechaInicioDeCobros()
+    {
+        
+        // 2019-06-08
+        // Antes trabajaba con un archivo que permitía guardar la última fecha procesada.
+        // Pero he optado por iniciar siempre desde el arranque del año.
+        return date('Y').'-01-01';
+        /*
+         * Levanta la fecha indicada en el file como última fecha procesada,
+         * y le suma 1 día.
+         * 
+        $file = $this->_pathArchivosTxtDelProceso.$this->_fileConUltimaFechaProcesada;
+        if( file_exists( $file ) ){
+            $fecha = file_get_contents( $file );
+            if( !$fecha || !validateDate( $fecha, 'Y-m-d') ){
+                return false;
+            }
+            // le sumo 1 día
+            return date( 'Y-m-d', sumaDia( $fecha, 1 ) );
+        }
+        return false;
+         * 
+         */
+    }
+    
+    private function _actualizarFechaUltimaProcesada( $fecha )
+    {
+        $file = $this->_pathArchivosTxtDelProceso.$this->_fileConUltimaFechaProcesada;
+        $fileHandle = @fopen( $file, 'w' );
+        if( !$fileHandle ){
+            $this->addColeccionMensajes( 'ERROR_ No se puede acceder al archivo <br> de última fecha de proceso de facturación.<br>'.$file );
+            return;
+        }
+        fwrite( $fileHandle, $fecha );
+        fclose( $fileHandle );
+    }
+    
+    
+    private function _logIniciar()
+    {
+        $file = $this->_pathArchivosTxtDelProceso.$this->_fileLogProceso;
+        $this->_fileLogHandle = @fopen( $file, "a" ); // "a" add
+        if( !$this->_fileLogHandle ){
+            $this->addColeccionMensajes( 'ERROR_ No se puede acceder al archivo de logs de facturación.<br>'.$file );
+            return;
+        }
+        $t = "\n\n -------------------------------------------------------------";
+        $t.= "\n EJECUCIÓN DÍA HORA: ".date('Y-m-d H:i:s');
+        fwrite( $this->_fileLogHandle, $t );
+    }
+    private function _logFechasEjecutando( $fechaDesde, $fechaHasta )
+    {
+        $t = "\n Desde: $fechaDesde, Hasta: $fechaHasta";
+        if( $this->_fileLogHandle ){
+            fwrite( $this->_fileLogHandle, $t );
+        }
+    }
+    private function _logCerrar( $sedesItemsCobrados=false, $cobrosAplicados=0, $cobrosNoAplicables=0, $yaRegistrados=0 )
+    {
+        $t = "\n";
+        if($sedesItemsCobrados){
+            $t.= "\n\n Se ha cobrado lo siguiente: \n";
+            foreach( $sedesItemsCobrados as $anio => $sedeValues ){
+                $t.="\n $anio :";
+                foreach( $sedeValues as $sedeId => $evAbreviaturas ){
+                    //$sede = $this->sedes[ $sedeId ];
+                    $t.="\n ".$this->_sedes[ $sedeId ]->getNombre().": ".implode( ', ', $evAbreviaturas );
+                }
+            }
+        }else{
+            $t.="\n NO SE HAN REALIZADO COBROS.";
+        }
+        $t.= "\n ";
+        $t.= "\n Cobros insertados: ".$cobrosAplicados;
+        $t.= "\n Cobros NO aplicados: ".$cobrosNoAplicables;
+        $t.= "\n Cobros antes registrados: ".$yaRegistrados;
+        $t.= "\n\n FIN: ".date('Y-m-d H:i:s');
+        //$t.= "\n -------------------------------------------------------------";
+        if( $this->_fileLogHandle ){
+            fwrite( $this->_fileLogHandle, $t );
+            fclose( $this->_fileLogHandle );
+        }
+    }
+    private function _logCobro( $identificador, $cobrar=false )
+    {
+        $t = "\n";
+        
+        switch ( $identificador ) {
+            case 'ya fue cobrado':
+                $t.='Cobro ya realizado: '.verArray( $cobrar );
+
+                break;
+            case 'nada por cobrar':
+                $t.= 'Nada a cobrar para las fechas indicadas.';
+                break;
+            
+            case 'cobro_no_realizado':
+                $t.= "\n Cobro no realizado: ";
+                $t.= verArray( $cobrar );
+                break;
+                
+            default:
+                $t.= 'identificador de log no identificado: "'.$identificador.'"';
+                break;
+        }
+        
+        if( $this->_fileLogHandle ){
+            fwrite( $this->_fileLogHandle, $t );
+        }
+    }
+    private function _logEscribir( $texto )
+    {
+        if( $this->_fileLogHandle ){
+            fwrite( $this->_fileLogHandle, $texto );
+        }
+    }    
+    
+    /*
+     * OUTPUT
+     * <boolean>    
+    private function _sedeYaCobrada( $sedeId, $fechaCobrando )
+    {
+        if( !isset( $this->ultimasFechasCobradasPorSede[ $sedeId ] ) ){
+            return false;
+        }
+        if( $this->ultimasFechasCobradasPorSede[ $sedeId ] >= $fechaCobrando ){
+            return true;
+        }else{
+            return false;
+        }
+    }
+     */
+    
+    
+    /*
+     * Obtengo todos los alumnos, a los que podría cobrarseles algo
+     * entre las fechas procesando.
+     * 
+     * INPUT
+     *  $sedeIdAProcesar    Default 0, todas
+     * 
+     * OUTPUT
+     *  <array>
+     *          <array>
+     *              'sedes_id'
+     *              'alumnos_id'
+     *              'fecha_alta'
+     *              'fecha_finalizo'
+     * 
+    private function _sedesAlumnos( $fechaDeInicioDeCobros, $fechaDeFinDeCobros, $sedeIdAProcesar=0 )
+    {
+        $select = $this ->select()
+                        ->setIntegrityCheck(false);
+        
+        $select ->from( array(  'scxa'    => 'yoga_sedes_cursosxanio' ), 
+                        array( 'sedes_id'  ) 
+                        )
+                ->joinLeft(
+                        array( 'scxaa'    => 'yoga_sedes_cursosxanio_alumnos' ),
+                        'scxaa.sedes_cursosxanio_id = scxa.id',      //union
+                        array( 'alumnos_id', 'fecha_alta', 'fecha_finalizo' ) 
+                        )
+                ->order( array( 'sedes_id', ) )
+                ->where( 'anio IN ( "'.substr( $fechaDeInicioDeCobros, 0, 4).'", "'.substr( $fechaDeFinDeCobros, 0, 4).'" ) ' )
+                //->where( "fecha_alta <= '$fechaDeInicioDeCobros' " )
+                ->where( "fecha_finalizo IS NULL OR fecha_finalizo >= '$fechaDeFinDeCobros' " )
+                ;
+        if( $sedeIdAProcesar != 0 ){
+            $select->where( "sedes_id = $sedeIdAProcesar " );
+        }
+        //$select = $this->construirElWhere( $select, $where );
+        
+        // print( $select ); die();
+        
+        $filasArray = $this->fetchAll($select)->toArray();
+        return $filasArray;
+    }
+     */
+    
+    /*
+     * OUTPUT
+     *  <array> ordenado por scxa y fecha_inicio del elemento valuado
+            'sedes_id', 
+            'anio',
+            'sedes_cursosxanio_id', 
+            'fecha_inicio' 
+            'ev_dia_inicio_de_cobro_default',
+            'ev_mes_inicio_de_cobro_default',
+            'valor'  
+            'ev_id', 
+            'ev_abreviatura',    
+     *      
+    public function getElementosValuadosACobrarPorSede( $fechaInicio, $fechaFin )
+    {
+        $select = $this ->select()
+                        ->setIntegrityCheck(false);
+        $select 
+                ->from( array(  'scxa'    => 'view_elementosvaluados_por_sedes_cursos_y_planes' ), 
+                        array(  'sedes_id', 
+                                'anio',
+                                'sedes_cursosxanio_id', 
+                                'fecha_inicio'=>'evscxa_fecha_inicio',
+                                'ev_dia_inicio_de_cobro_default',
+                                'ev_mes_inicio_de_cobro_default',
+                                'valor' => 'evscxa_valor',
+                                'ev_id', 
+                                'ev_abreviatura',
+                            ) )
+                ->where( 'evscxa_fecha_inicio >= "'.$fechaInicio.'" ')
+                ->where( 'evscxa_fecha_inicio <= "'.$fechaFin.'" ')
+                ->order( array('sedes_cursosxanio_id','fecha_inicio') )
+                ;
+        //$select = $this->construirElWhere( $select, $where );
+        // print( $select ); die();
+        
+        $filasArray = $this->fetchAll($select)->toArray();
+        return $filasArray;
+    }
+     */
+    
+    /*
+     * Rastrea la tabla cuentas corrientes en busqueda de 
+     * la ultima fecha de items cobrados para cada sede.
+     * OUTPUT
+     *  <array>
+     *      sedes_id    =>  ultima_fecha_cobrada
+    public function _getUltimasFechasCobradasPorSede()
+    {
+        $select = $this ->select()
+                        ->setIntegrityCheck(false);
+        
+        $select ->from( array(  'view'    => 'view_alumnos_por_sedes_cursos_y_planes' ), 
+                        array( 'sedes_id' ) )
+                ->joinLeft(
+                    array( 'ctasctes'   => 'yoga_cuentas_corrientes' ),
+                    'ctasctes.alumnos_id = view.alumnos_id',      //union
+                    array( 'ultima_fecha_cobrada' => 'MAX( ctasctes.fecha_operacion )') 
+                        )
+                
+                ->group( 'sedes_id')
+                ;
+        //$select = $this->construirElWhere( $select, $where );
+        
+        // print( $select ); die();
+        
+        $filasArray = $this->fetchAll($select)->toArray();
+        
+        $sedesFecha = array();
+        foreach( $filasArray as $fila ){
+            $sedesFecha[ $fila['sedes_id'] ] = $fila['ultima_fecha_cobrada'];
+        }
+        return $sedesFecha;
+    }
+     */
+    
+}

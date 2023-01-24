@@ -1,0 +1,75 @@
+<?php
+
+require_once 'admin/logicalmodels/ElementosValuadosExtras.php';
+require_once 'cuentacorriente/logicalmodels/CoberturaOperaciones.php';
+require_once 'cuentacorriente/logicalmodels/FuncionesSobreEVAs.php';
+require_once 'admin/models/AuditoriaColeccion.php';
+require_once 'extensiones/generales/MiMensajero.php'; 
+
+abstract class RegistroCredito 
+{
+    protected $datosDelMov;
+    protected $simular;
+    protected $alumnos_id;
+    protected $cuentaCorrienteColeccion;
+    protected $CuentaCorrienteCredito;
+    protected $deudasPreviasAlPago;
+    protected $listaDeudasPorEvscxa;
+    protected $evscxaIdsPaga;       // <array> id numerico => monto   
+    protected $otrosConceptosPaga;  // <array> key string => monto
+    protected $otrosConceptos;
+    protected $debitosTrabajados=[];
+    protected $coberturaOperaciones;
+
+    
+    public function __construct( $datosDelMov, $simular=false )
+    {
+        $this->datosDelMov = $datosDelMov;
+        $this->simular = $simular;
+        $this->otrosConceptos = ElementosValuadosExtras::otrosConceptosEnModoUrl();
+        
+        // pagos indicados desde $datosDelMov
+        $this->otrosConceptosPaga = (key_exists('seleccion_otros_conceptos', $this->datosDelMov ))? $this->datosDelMov['seleccion_otros_conceptos'] : array();
+        $this->evscxaIdsPaga = (is_array( $this->datosDelMov['seleccion_deuda_item'] ))? $this->datosDelMov['seleccion_deuda_item'] : array();
+        
+        // data general del sistema
+        $this->alumnos_id = $this->datosDelMov['alumnos_id'];
+        $this->cuentaCorrienteColeccion = new CuentaCorrienteColeccion();
+        $this->auditoriaColeccion = new AuditoriaColeccion();
+        
+        // deuda inicial
+        $this->listaDeudasPorEvscxa = 
+                $this->cuentaCorrienteColeccion->getEvscxaPorSaldar( $this->alumnos_id );
+        
+        // inicialización para el uso de cobertura
+        $this->coberturaOperaciones    = new CoberturaOperaciones( USUARIO_SEDE_ID,
+                                                                    $this->cuentaCorrienteColeccion,
+                                                                    new FuncionesSobreEVAs( USUARIO_SEDE_ID )
+                                                                    );
+        // Seteo inicial del array que carga todo lo que va siendo procesado:
+        $this->debitosTrabajados = ['dondeDistribuir'=>[],  // datos de los débitos con deuda
+                                    'objetos_debito'=>[],   // objetos CuentaCorriente de tipo deuda.
+                                    'pagos'=>[],            // array con los pagos que se van calculando.
+                                    'monto'=>0, // El monto total, en 'otros conceptos'
+                                                // tiene que ser cero 
+                                                // para que no modifique el saldo en el cartelito de confirmación,
+                                                // ya que estos importes no deben afectar a la cuenta corriente. 
+                                                // Pero una vez confirmada la operación, paso el monto real. 
+                                    'errores'=>[]
+                                    ];
+    }
+    
+    protected function getMotivosAcademico()
+    {
+        $motivo='';
+        if( count($this->debitosTrabajados['objetos_debito'])>0 ){
+            // motivo será la concatenación del motivo deuda + el importe pagado:
+            foreach( $this->debitosTrabajados['objetos_debito'] as $CuentaCorriente ){
+                $motivo.= $CuentaCorriente->getMotivo().
+                        '('.$this->debitosTrabajados['pagos'][$CuentaCorriente->getId()].'). ';
+            }
+        }
+        return $motivo;
+    }    
+    
+}

@@ -1,0 +1,65 @@
+<?php
+
+/*
+ * Clase que había pensado para búsqueda de inconsistencias dentro 
+ * de la Cuenta Corriente.
+ * Por el momento esta clase ESTA SIN USO.
+ */
+
+require_once 'cuentacorriente/models/CuentaCorrienteColeccion.php';
+
+/*
+ * Devuelve objetos CuentaCorriente que presentan alguna de estas situaciones:
+ * 
+                                            MONTO	COBERTURA	SALDO
+  
+        1° Pagos con cobertura negativa:
+                                            100         -100            200
+
+        2° Pagos con cobertura mayor que su monto
+                                            100         120             -20
+
+        3° Deudas con coberturas mayores a cero
+                                            -100	10              -110
+
+        4° Deudas con coberturas inferiores a su monto
+                                            -100	-200            100
+
+
+        Caso 1 = Caso 3, MONTO y COBERTURA de signos opuestos y COBERTURA distintos a cero.			
+
+        Caso 2 = Caso 4, MONTO < COBERTURA y distintos de cero y mismo signo.	
+ 
+ */
+class CuentaCorrienteColeccionError extends CuentaCorrienteColeccion
+{    
+    
+    public function getCuentaCorrienteConErrores( array $wheresAdicionales=null )
+    {
+        $wheresAdicionales = ($wheresAdicionales==null)? array() : $wheresAdicionales;
+        
+        $errores = 
+                    //  1° Pagos con cobertura negativa:
+                    //      100         -100            200
+                        ' monto > 0 AND cobertura < 0           OR'.
+                
+                    //  2° Pagos con cobertura mayor que su monto
+                    //      100         120             -20
+                        ' monto > 0 AND cobertura > monto       OR'.
+                
+                    //  3° Deudas con coberturas mayores a cero
+                    //      -100	10              -110
+                        ' monto < 0 AND cobertura > 0           OR'.
+                
+                    //  4° Deudas con coberturas inferiores a su monto
+                    //      -100	-200            100
+                        ' monto < 0 AND cobertura < monto ';
+        
+        $buscar = $wheresAdicionales + array( $errores );
+        
+        return $this->obtenerGeneral( $buscar, 'id', 'CuentaCorriente');
+        
+    }
+}
+
+
